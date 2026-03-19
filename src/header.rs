@@ -37,7 +37,7 @@ impl CommentStyle {
             | "tf" | "tfvars" | "hcl"  // Terraform / HCL
             | "nix"                    // Nix
             | "graphql" | "gql"
-            | "md" | "txt"
+            | "txt"
             | "toml" | "yaml" | "yml"
             => Some(Self::Hash),
 
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn hash_extensions() {
         for ext in &["py", "rb", "cr", "nim", "ex", "exs", "jl", "tf", "nix",
-                     "graphql", "md", "toml", "yaml", "yml"] {
+                     "graphql", "toml", "yaml", "yml"] {
             assert_eq!(CommentStyle::from_ext(ext), Some(CommentStyle::Hash),
                 "expected Hash for .{}", ext);
         }

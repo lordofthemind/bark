@@ -519,7 +519,7 @@ bark supports 74+ extensions across four comment styles.
 | Nix | `nix` |
 | GraphQL | `graphql` `gql` |
 | Data / Config | `toml` `yaml` `yml` |
-| Markdown / Text | `md` `txt` |
+| Plain Text | `txt` |
 
 ### `/* */` — CSS
 
@@ -544,7 +544,7 @@ custom = [
 
 ```toml
 [extensions]
-skip = ["md", "txt"]   # never tag these even if they have a built-in style
+skip = ["txt"]   # never tag these even if they have a built-in style
 ```
 
 ---

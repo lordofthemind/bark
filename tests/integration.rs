@@ -583,6 +583,7 @@ fn lib_walker_finds_source_files() {
     let dir = TempDir::new().unwrap();
     init_git(&dir);
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    fs::write(dir.path().join("notes.txt"), "plain text\n").unwrap();
     fs::write(dir.path().join("README.md"), "# README\n").unwrap();
     fs::write(dir.path().join("data.xyz"), "unknown format\n").unwrap();
 
@@ -598,7 +599,8 @@ fn lib_walker_finds_source_files() {
         .collect();
 
     assert!(paths.iter().any(|p| p.contains("main.go")), "should find go file");
-    assert!(paths.iter().any(|p| p.contains("README.md")), "should find markdown file");
+    assert!(paths.iter().any(|p| p.contains("notes.txt")), "should find txt file");
+    assert!(!paths.iter().any(|p| p.contains("README.md")), "should skip markdown");
     assert!(!paths.iter().any(|p| p.contains("data.xyz")), "should skip unknown extension");
 }
 
