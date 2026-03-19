@@ -5,14 +5,15 @@ use colored::Colorize;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct FileWatcher {
-    processor: Arc<Processor>,
-    debounce_ms: u64,
-    output_path: PathBuf,
-    dry_run: bool,
+    pub processor: Arc<Processor>,
+    pub debounce_ms: u64,
+    pub output_path: PathBuf,
+    pub dry_run: bool,
 }
 
 impl FileWatcher {
@@ -25,7 +26,18 @@ impl FileWatcher {
         Self { processor, debounce_ms, output_path, dry_run }
     }
 
+    /// Run forever (normal CLI use).
     pub fn run(&self, root: &Path) -> anyhow::Result<()> {
+        self.run_until_stopped(root, None)
+    }
+
+    /// Run until `stop` is set to true (useful for tests).
+    /// The loop checks the flag every 100 ms when idle.
+    pub fn run_until_stopped(
+        &self,
+        root: &Path,
+        stop: Option<Arc<AtomicBool>>,
+    ) -> anyhow::Result<()> {
         println!(
             "{} Watching {} for changes… (Ctrl-C to stop)",
             "bark".green().bold(),
@@ -48,13 +60,18 @@ impl FileWatcher {
             Arc::new(Mutex::new(HashSet::new()));
 
         loop {
-            // Block until we get the first event
-            let first = match rx.recv() {
-                Ok(e) => e,
-                Err(_) => break,
-            };
+            // Check stop flag first
+            if stop.as_ref().map_or(false, |s| s.load(Ordering::Relaxed)) {
+                break;
+            }
 
-            let Ok(first_event) = first else { continue };
+            // Wait for an event with a short timeout so we can poll the stop flag
+            let first_event = match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(e)) => e,
+                Ok(Err(_)) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
 
             // Collect additional events within the debounce window
             let deadline = Instant::now() + Duration::from_millis(self.debounce_ms);
@@ -135,6 +152,11 @@ impl FileWatcher {
                     processed
                 );
             }
+
+            // Check stop after processing a batch
+            if stop.as_ref().map_or(false, |s| s.load(Ordering::Relaxed)) {
+                break;
+            }
         }
 
         Ok(())
@@ -151,7 +173,7 @@ fn is_write_event(kind: &EventKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notify::event::{CreateKind, ModifyKind, DataChange, RemoveKind};
+    use notify::event::{CreateKind, DataChange, MetadataKind, ModifyKind, RemoveKind};
 
     #[test]
     fn is_write_event_create_is_true() {
@@ -173,7 +195,7 @@ mod tests {
     #[test]
     fn is_write_event_other_modify_is_false() {
         assert!(!is_write_event(&EventKind::Modify(ModifyKind::Metadata(
-            notify::event::MetadataKind::Any
+            MetadataKind::Any
         ))));
     }
 
@@ -200,7 +222,6 @@ mod tests {
             tmp.path().join("tree.txt"),
             false,
         );
-        // Just verify construction succeeds and fields are set
         assert_eq!(fw.debounce_ms, 500);
         assert!(!fw.dry_run);
     }

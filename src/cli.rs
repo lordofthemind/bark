@@ -28,6 +28,8 @@ pub enum Commands {
     Tag(TagArgs),
     /// Remove all bark-managed headers from files
     Strip(StripArgs),
+    /// Generate the directory tree only — no headers are added or modified
+    Tree(TreeArgs),
     /// Watch directory and auto-tag files on change
     Watch(WatchArgs),
     /// Restore files from a backup
@@ -115,6 +117,10 @@ pub struct WatchArgs {
 
 #[derive(Args, Debug)]
 pub struct RestoreArgs {
+    /// Root directory of the project (default: current directory)
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<PathBuf>,
+
     /// Backup directory to restore from
     #[arg(default_value = ".bark_backups", value_name = "DIR")]
     pub backup_dir: PathBuf,
@@ -133,7 +139,22 @@ pub struct RestoreArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct TreeArgs {
+    /// Root directory to scan (default: current directory)
+    #[arg(value_name = "DIR")]
+    pub root: Option<PathBuf>,
+
+    /// Output file for the generated directory tree
+    #[arg(short, long, default_value = "tree.txt", value_name = "FILE")]
+    pub output: PathBuf,
+}
+
+#[derive(Args, Debug)]
 pub struct InitArgs {
+    /// Directory to create .bark.toml in (default: current directory)
+    #[arg(value_name = "DIR")]
+    pub dir: Option<PathBuf>,
+
     /// Overwrite existing .bark.toml if present
     #[arg(long)]
     pub force: bool,

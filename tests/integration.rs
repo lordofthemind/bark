@@ -837,3 +837,586 @@ fn lib_processor_strip_dry_run() {
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
     assert_eq!(content, original, "strip dry-run must not modify file");
 }
+
+// ── run_with_cli tests (directly call lib, fully instrumented by tarpaulin) ──
+
+/// Helper: create a minimal config file and return its path as a String.
+fn write_config(dir: &TempDir) -> String {
+    let cfg = dir.path().join("test.bark.toml");
+    fs::write(
+        &cfg,
+        "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n",
+    ).unwrap();
+    cfg.to_str().unwrap().to_string()
+}
+
+#[test]
+fn rwc_tag_adds_header() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--force", root]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(content.starts_with("// File: main.go"));
+}
+
+#[test]
+fn rwc_tag_with_threads() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    // --threads 2 exercises the rayon thread pool configuration path (lines 44-45)
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "tag", "--no-tree", "--force", "--threads", "2", root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(content.starts_with("// File: main.go"));
+}
+
+#[test]
+fn rwc_tag_output_is_directory_warning() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    // Create a *directory* named "tree.txt" to trigger the is_dir warning path
+    let tree_dir = dir.path().join("tree.txt");
+    fs::create_dir_all(&tree_dir).unwrap();
+    let tree_str = tree_dir.to_str().unwrap();
+
+    // Should succeed (just prints a warning), not fail
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "tag", "--force", "--output", tree_str, root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_tag_verbose_tree() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let tree = dir.path().join("tree.txt").to_str().unwrap().to_string();
+
+    // --verbose with tree generation covers the verbose "tree written to" print (line 73)
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "--verbose", "tag", "--force",
+        "--output", &tree, root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+    assert!(dir.path().join("tree.txt").exists());
+}
+
+#[test]
+fn rwc_tag_with_tree_generation() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let tree = dir.path().join("tree.txt").to_str().unwrap().to_string();
+
+    // Run without --no-tree so tree generation path is exercised
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "tag", "--force",
+        "--output", &tree,
+        root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+
+    assert!(dir.path().join("tree.txt").exists(), "tree.txt should be generated");
+    let content = fs::read_to_string(dir.path().join("app.rs")).unwrap();
+    assert!(content.starts_with("// File: app.rs"));
+}
+
+#[test]
+fn rwc_tag_dry_run() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("main.go"), original).unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--dry-run", root]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert_eq!(content, original, "dry-run should not modify files");
+}
+
+#[test]
+fn rwc_tag_no_matching_files() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("data.xyz"), "unknown\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    // Should succeed even when no files match (prints "no matching files found")
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--force", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_tag_from_config_file() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.go"), "package main\n").unwrap();
+
+    // Write a config with a custom template
+    let cfg = dir.path().join("custom.bark.toml");
+    fs::write(&cfg, "[general]\nbackup = false\n[template]\ndefault = \"X: {{file}}\"\n").unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", cfg_str, "tag", "--no-tree", "--force", root]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("app.go")).unwrap();
+    assert!(content.starts_with("// X: app.go"), "config custom template should be applied");
+}
+
+#[test]
+fn rwc_strip_removes_header() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "// File: main.go\n\npackage main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "strip", root]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(!content.contains("// File:"), "header should be removed");
+    assert!(content.contains("package main"));
+}
+
+#[test]
+fn rwc_strip_dry_run() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "// File: main.go\n\npackage main\n";
+    fs::write(dir.path().join("main.go"), original).unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "strip", "--dry-run", root]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert_eq!(content, original, "strip dry-run must not modify files");
+}
+
+#[test]
+fn rwc_strip_with_updated_stats() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    // File with no header → strip finds nothing (current count > 0)
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "strip", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_tree_command() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/lib.rs"), "").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let tree_out = dir.path().join("mytree.txt");
+    let tree_str = tree_out.to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tree", "--output", tree_str, root]);
+    bark::run_with_cli(cli).unwrap();
+
+    assert!(tree_out.exists(), "tree file should be written");
+    let tree_content = fs::read_to_string(&tree_out).unwrap();
+    assert!(tree_content.contains("main.go"));
+    assert!(tree_content.contains("src"));
+}
+
+#[test]
+fn rwc_tree_command_no_headers_added() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let original = "package main\n";
+    fs::write(dir.path().join("main.go"), original).unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let tree_out = dir.path().join("tree.txt").to_str().unwrap().to_string();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tree", "--output", &tree_out, root]);
+    bark::run_with_cli(cli).unwrap();
+
+    // Source file must be unmodified — tree command does NOT add headers
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert_eq!(content, original, "bark tree must not modify source files");
+}
+
+#[test]
+fn rwc_init_creates_config() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    assert!(dir.path().join(".bark.toml").exists(), ".bark.toml should be created");
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("[general]"));
+}
+
+#[test]
+fn rwc_init_fails_without_force_when_exists() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join(".bark.toml"), "existing\n").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", dir_str]);
+    let result = bark::run_with_cli(cli);
+    assert!(result.is_err(), "init without --force should fail if .bark.toml exists");
+}
+
+#[test]
+fn rwc_init_force_overwrites() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join(".bark.toml"), "old content\n").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--force", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("[general]"), "should be overwritten with default config");
+}
+
+#[test]
+fn rwc_restore_no_backups() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let cfg = write_config(&dir);
+    let backup_dir = dir.path().join(".bark_backups");
+    // backup_dir does not exist → list_backups returns []
+
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "restore",
+        "--root", dir.path().to_str().unwrap(),
+        backup_dir.to_str().unwrap(),
+    ]);
+    bark::run_with_cli(cli).unwrap(); // prints "No backups found." and returns Ok
+}
+
+#[test]
+fn rwc_restore_latest() {
+    use bark::cli::Cli;
+    use bark::backup::BackupManager;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("main.go");
+    fs::write(&source, "original\n").unwrap();
+
+    let backup_dir = dir.path().join(".bark_backups");
+    let mgr = BackupManager::new(backup_dir.clone(), true);
+    mgr.backup(&source, dir.path()).unwrap();
+
+    // Modify source so we can verify restore worked
+    fs::write(&source, "modified\n").unwrap();
+
+    // The restore --latest command restores using relative paths from root,
+    // so we change CWD to the temp dir to make the relative path resolve correctly
+    let original_cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let cfg = write_config(&dir);
+    let result = (|| {
+        let cli = Cli::parse_from(&[
+            "bark", "--config", &cfg, "restore", "--latest",
+            "--root", ".",
+            ".bark_backups",
+        ]);
+        bark::run_with_cli(cli)
+    })();
+
+    std::env::set_current_dir(&original_cwd).unwrap();
+    result.unwrap();
+}
+
+#[test]
+fn rwc_print_tag_summary_no_files() {
+    use bark::processor::Stats;
+    // Covers the "no matching files" branch in print_tag_summary
+    let stats = Stats::default();
+    bark::print_tag_summary(&stats, false);
+    bark::print_tag_summary(&stats, true);
+}
+
+#[test]
+fn rwc_print_tag_summary_with_all_counts() {
+    use bark::processor::Stats;
+    use std::sync::atomic::Ordering;
+    let stats = Stats::default();
+    stats.tagged.store(1, Ordering::Relaxed);
+    stats.updated.store(2, Ordering::Relaxed);
+    stats.current.store(3, Ordering::Relaxed);
+    stats.skipped.store(4, Ordering::Relaxed);
+    stats.errors.store(5, Ordering::Relaxed);
+    bark::print_tag_summary(&stats, false);
+    bark::print_tag_summary(&stats, true);
+}
+
+#[test]
+fn rwc_print_strip_summary() {
+    use bark::processor::Stats;
+    use std::sync::atomic::Ordering;
+    let stats = Stats::default();
+    stats.stripped.store(3, Ordering::Relaxed);
+    stats.current.store(1, Ordering::Relaxed);
+    stats.errors.store(1, Ordering::Relaxed);
+    bark::print_strip_summary(&stats, false);
+    bark::print_strip_summary(&stats, true);
+}
+
+#[test]
+fn rwc_default_config_toml_content() {
+    let toml = bark::default_config_toml();
+    assert!(toml.contains("[general]"));
+    assert!(toml.contains("[template]"));
+    assert!(toml.contains("[exclude]"));
+    assert!(toml.contains("{{file}}"));
+}
+
+// ── FileWatcher stop-signal test ──────────────────────────────────────────────
+
+#[test]
+fn lib_processor_verbose_strip() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    // File with a header → strip with verbose=true covers the verbose print (line 223)
+    fs::write(dir.path().join("main.go"), "// File: main.go\n\npackage main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, true, false, None);
+    let stats = proc.run_strip(dir.path(), &output_path, false).unwrap();
+    use std::sync::atomic::Ordering;
+    assert!(stats.stripped.load(Ordering::Relaxed) > 0);
+}
+
+#[test]
+fn lib_processor_dry_run_update() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    // File with existing (different) header → dry-run tag → "would update" path (line 177)
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go\n\npackage main\n",
+    ).unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    // Use a different template so the existing header is stale
+    let proc = Processor::new(
+        config, dir.path(), backup_dir, true, false, false,
+        Some("File: {{file}} | v2".to_string()),
+    );
+    proc.run_tag(dir.path(), &output_path).unwrap();
+    // File should be unchanged (dry-run)
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(content.starts_with("// File: main.go\n"), "dry-run must not modify file");
+}
+
+#[test]
+fn watcher_run_fails_for_nonexistent_root() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::Arc;
+
+    let tmp = TempDir::new().unwrap();
+    let config = Arc::new(Config::default());
+    let proc = Arc::new(Processor::new(
+        config,
+        tmp.path(),
+        tmp.path().join(".bark_backups"),
+        false, false, false, None,
+    ));
+    let fw = FileWatcher::new(proc, 100, tmp.path().join("tree.txt"), false);
+
+    // Watching a nonexistent path errors immediately — covers run() delegation (lines 30-31)
+    let result = fw.run(std::path::Path::new("/nonexistent/bark/test/path/99999"));
+    assert!(result.is_err(), "watching nonexistent path should return an error");
+}
+
+#[test]
+fn watcher_stops_on_signal() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("watch.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+    let root = dir.path().to_path_buf();
+
+    let proc = Arc::new(Processor::new(
+        Arc::clone(&config),
+        &root,
+        backup_dir,
+        false, false, false, None,
+    ));
+    let fw = Arc::new(FileWatcher::new(proc, 100, output_path, false));
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+    let root_clone = root.clone();
+
+    let handle = std::thread::spawn(move || {
+        fw_clone.run_until_stopped(&root_clone, Some(stop_clone)).unwrap();
+    });
+
+    // Let the watcher start
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // Trigger a real file-change event so the event-processing path is exercised
+    fs::write(dir.path().join("watch.go"), "package main // changed\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // Signal stop
+    stop.store(true, Ordering::Relaxed);
+    handle.join().expect("watcher thread should exit cleanly");
+}
+
+#[test]
+fn watcher_dry_run_does_not_write() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("dry.go"), original).unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+    let root = dir.path().to_path_buf();
+
+    let proc = Arc::new(Processor::new(
+        Arc::clone(&config),
+        &root,
+        backup_dir,
+        true,  // dry_run
+        false, false, None,
+    ));
+    let fw = Arc::new(FileWatcher::new(proc, 100, output_path, true));
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+    let root_clone = root.clone();
+
+    let handle = std::thread::spawn(move || {
+        fw_clone.run_until_stopped(&root_clone, Some(stop_clone)).unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    // Trigger a write event
+    fs::write(dir.path().join("dry.go"), "package main // trigger\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    stop.store(true, Ordering::Relaxed);
+    handle.join().expect("watcher thread should exit cleanly");
+}

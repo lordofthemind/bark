@@ -19,8 +19,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub fn run() -> Result<()> {
-    let cli = Cli::parse();
+    run_with_cli(Cli::parse())
+}
 
+pub fn run_with_cli(cli: Cli) -> Result<()> {
     // Load config: explicit flag → search upward → defaults
     let config = match &cli.config {
         Some(path) => Config::from_file(path)?,
@@ -117,6 +119,27 @@ pub fn run() -> Result<()> {
             print_strip_summary(&stats, args.dry_run);
         }
 
+        Commands::Tree(args) => {
+            let root = args.root.clone()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from("."));
+
+            let output_path = root.join(&args.output);
+
+            if output_path.is_dir() {
+                anyhow::bail!(
+                    "'{}' is a directory — use --output to specify a different filename",
+                    output_path.display()
+                );
+            }
+
+            let backup_dir = root.join(config.general.backup_dir.clone());
+            let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
+            gen.generate(&output_path)?;
+            println!("{} tree written to {}", "bark".green().bold(), output_path.display());
+        }
+
         Commands::Watch(args) => {
             let root = args.root.clone()
                 .unwrap_or_else(|| PathBuf::from("."))
@@ -148,7 +171,8 @@ pub fn run() -> Result<()> {
         }
 
         Commands::Restore(args) => {
-            let root = std::env::current_dir()?;
+            let root = args.root.clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let backup_dir = root.join(&args.backup_dir);
             let mgr = backup::BackupManager::new(backup_dir, false);
 
@@ -201,23 +225,20 @@ pub fn run() -> Result<()> {
         }
 
         Commands::Init(args) => {
-            let target = PathBuf::from(".bark.toml");
+            let dir = args.dir.unwrap_or_else(|| PathBuf::from("."));
+            let target = dir.join(".bark.toml");
             if target.exists() && !args.force {
-                eprintln!(
-                    "{} .bark.toml already exists. Use --force to overwrite.",
-                    "error".red()
-                );
-                std::process::exit(1);
+                anyhow::bail!(".bark.toml already exists — use --force to overwrite");
             }
             std::fs::write(&target, default_config_toml())?;
-            println!("{} created .bark.toml", "bark".green().bold());
+            println!("{} created {}", "bark".green().bold(), target.display());
         }
     }
 
     Ok(())
 }
 
-fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
+pub fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     use std::sync::atomic::Ordering;
     let mode = if dry_run { " (dry run)" } else { "" };
     println!();
@@ -229,7 +250,8 @@ fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     let errors  = stats.errors.load(Ordering::Relaxed);
     let total = tagged + updated + current + skipped + errors;
     if total == 0 {
-        println!("  {} — add extensions in .bark.toml, or run {} to debug", "no matching files found".yellow(), "bark tag -v".bold());
+        println!("  {} — add extensions in .bark.toml, or run {} to debug",
+            "no matching files found".yellow(), "bark tag -v".bold());
         return;
     }
     if tagged  > 0 { println!("  {} tagged",   tagged.to_string().purple()); }
@@ -239,7 +261,7 @@ fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     if errors  > 0 { println!("  {} errors",   errors.to_string().red()); }
 }
 
-fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
+pub fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
     use std::sync::atomic::Ordering;
     let mode = if dry_run { " (dry run)" } else { "" };
     println!();
@@ -252,54 +274,6 @@ fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
     if errors   > 0 { println!("  {} errors", errors.to_string().red()); }
 }
 
-fn default_config_toml() -> &'static str {
-    r#"# .bark.toml — project configuration for bark
-
-[general]
-output      = "tree.txt"        # tree output filename
-backup_dir  = ".bark_backups"   # where backups are stored
-max_file_size = 1048576         # skip files larger than this (bytes)
-backup      = true              # create backups before modifying files
-
-[template]
-# Available variables: {{file}}, {{date}}, {{year}}, {{author}}, {{project}}, {{filename}}, {{ext}}
-default     = "File: {{file}}"
-date_format = "%Y-%m-%d"
-
-# Per-extension template overrides (extension without the dot)
-[template.overrides]
-# rs = "File: {{file}} | Author: {{author}} | {{date}}"
-# py = "File: {{file}} | Project: {{project}}"
-
-# Static variables available in all templates
-[template.variables]
-# author  = "Your Name"
-# project = "my-project"
-
-[exclude]
-# Glob patterns for files/directories to skip
-patterns = [
-    "*.min.*",
-    "*.bundle.*",
-    "dist/**",
-    "build/**",
-    "node_modules/**",
-    "vendor/**",
-    "target/**",
-]
-
-[extensions]
-# Extra extensions to process beyond the built-in set
-# style: "slash" (// ...), "hash" (# ...), "css" (/* ... */), "html" (<!-- ... -->)
-custom = [
-    # { ext = "lua",    style = "slash" },
-    # { ext = "svelte", style = "html"  },
-]
-# Extensions to always skip
-skip = []
-
-[watch]
-debounce_ms = 500   # milliseconds to wait after a change before processing
-ignore      = []    # additional glob patterns to ignore in watch mode
-"#
+pub fn default_config_toml() -> &'static str {
+    include_str!("default_config.toml")
 }

@@ -474,4 +474,34 @@ mod tests {
         assert!(!result.contains("<!-- File:"));
         assert!(result.contains("<html></html>"));
     }
+
+    // ── shebang + existing header edge cases (covers lines 138 and 145) ──────
+
+    #[test]
+    fn apply_tag_shebang_with_existing_header_and_blank() {
+        // shebang → existing header → blank line → code
+        // Line 138: the `{ 3 }` branch — skip header + blank → rest_start = 3
+        let content = "#!/usr/bin/env python3\n# File: old.py\n\nprint('hi')\n";
+        let result = apply_tag(content, "# File: script.py", CommentStyle::Hash);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines[0], "#!/usr/bin/env python3");
+        assert_eq!(lines[1], "# File: script.py");
+        assert_eq!(lines[2], "");
+        assert_eq!(lines[3], "print('hi')");
+        // Old header must be replaced, not duplicated
+        assert_eq!(result.matches("# File:").count(), 1);
+    }
+
+    #[test]
+    fn apply_tag_shebang_existing_header_multiple_blanks() {
+        // shebang → existing header → multiple blank lines → code
+        // Line 145: rest_start += 1 in blank-dedup loop (shebang path)
+        let content = "#!/usr/bin/env python3\n# File: old.py\n\n\n\nprint('hi')\n";
+        let result = apply_tag(content, "# File: script.py", CommentStyle::Hash);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines[0], "#!/usr/bin/env python3");
+        assert_eq!(lines[1], "# File: script.py");
+        assert_eq!(lines[2], "");             // exactly one blank
+        assert_eq!(lines[3], "print('hi')"); // multiple blanks collapsed
+    }
 }
