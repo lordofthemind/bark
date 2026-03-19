@@ -55,16 +55,26 @@ fn main() -> Result<()> {
 
             let config = Arc::new(cfg);
 
-            // Generate tree
+            // Generate tree (skip in dry-run mode)
             if !args.no_tree {
-                let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
-                match gen.generate(&output_path) {
-                    Ok(_) => {
-                        if cli.verbose {
-                            println!("{} tree written to {}", "bark".green().bold(), output_path.display());
+                if args.dry_run {
+                    println!("{} would write {}", "tree".dimmed(), output_path.display());
+                } else if output_path.is_dir() {
+                    eprintln!(
+                        "{} '{}' is a directory — remove it or use --output to pick a different name",
+                        "warn".yellow(),
+                        output_path.display()
+                    );
+                } else {
+                    let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
+                    match gen.generate(&output_path) {
+                        Ok(_) => {
+                            if cli.verbose {
+                                println!("{} tree written to {}", "bark".green().bold(), output_path.display());
+                            }
                         }
+                        Err(e) => eprintln!("{} tree generation: {}", "warn".yellow(), e),
                     }
-                    Err(e) => eprintln!("{} tree generation: {}", "warn".yellow(), e),
                 }
             }
 
@@ -217,6 +227,11 @@ fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     let current = stats.current.load(Ordering::Relaxed);
     let skipped = stats.skipped.load(Ordering::Relaxed);
     let errors  = stats.errors.load(Ordering::Relaxed);
+    let total = tagged + updated + current + skipped + errors;
+    if total == 0 {
+        println!("  {} — add extensions in .bark.toml, or run {} to debug", "no matching files found".yellow(), "bark tag -v".bold());
+        return;
+    }
     if tagged  > 0 { println!("  {} tagged",   tagged.to_string().purple()); }
     if updated > 0 { println!("  {} updated",  updated.to_string().blue()); }
     if current > 0 { println!("  {} current",  current.to_string().dimmed()); }
