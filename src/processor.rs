@@ -120,16 +120,42 @@ impl Processor {
     }
 
     /// Tag a single file by its absolute path (used by watcher).
+    /// Respects the same config rules as the full walker (skip list, custom extensions, excludes).
     pub fn tag_file_by_path(&self, abs_path: &Path, root: &Path) -> anyhow::Result<()> {
         let rel_path = abs_path.strip_prefix(root).unwrap_or(abs_path).to_path_buf();
         let ext = abs_path
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        let style = match CommentStyle::from_ext(&ext) {
+
+        // Respect the extension skip list
+        if self.config.extensions.skip.contains(&ext.to_string()) {
+            return Ok(());
+        }
+
+        // Check custom extensions first, then fall back to built-ins
+        let style = self.config.extensions.custom.iter()
+            .find(|c| c.ext == ext.as_str())
+            .and_then(|c| match c.style.as_str() {
+                "slash" => Some(CommentStyle::Slash),
+                "hash"  => Some(CommentStyle::Hash),
+                "css"   => Some(CommentStyle::Css),
+                "html"  => Some(CommentStyle::Html),
+                _ => None,
+            })
+            .or_else(|| CommentStyle::from_ext(&ext));
+
+        let style = match style {
             Some(s) => s,
             None => return Ok(()),
         };
+
+        // Respect config exclude patterns
+        let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+        if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.patterns) {
+            return Ok(());
+        }
+
         let entry = WalkEntry { abs_path: abs_path.to_path_buf(), rel_path, style };
         self.tag_file(&entry, root)?;
         Ok(())
@@ -138,7 +164,7 @@ impl Processor {
     fn tag_file(&self, entry: &WalkEntry, root: &Path) -> anyhow::Result<TagResult> {
         let content = std::fs::read_to_string(&entry.abs_path)?;
 
-        // Pick template: per-extension override → CLI override → config default
+        // Pick template: CLI override → per-extension config override → config default
         let ext = entry.abs_path
             .extension()
             .map(|e| e.to_string_lossy().to_string())
@@ -159,17 +185,21 @@ impl Processor {
 
         let desired = header::build_header(entry.style, &template, &ctx);
 
-        match header::analyze(&content, &desired, entry.style) {
+        // Analyze once and reuse the result — avoids a redundant second call
+        let action = header::analyze(&content, &desired, entry.style);
+
+        match action {
             HeaderAction::AlreadyCurrent => {
                 if self.verbose {
                     println!("{} {}", "current".dimmed(), entry.rel_path.display());
                 }
-                return Ok(TagResult::Current);
+                Ok(TagResult::Current)
             }
             HeaderAction::UpdateExisting | HeaderAction::AddNew => {
-                let result_type = match header::analyze(&content, &desired, entry.style) {
-                    HeaderAction::UpdateExisting => TagResult::Updated,
-                    _ => TagResult::Tagged,
+                let result_type = if matches!(action, HeaderAction::UpdateExisting) {
+                    TagResult::Updated
+                } else {
+                    TagResult::Tagged
                 };
 
                 if self.dry_run {

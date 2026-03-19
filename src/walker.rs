@@ -86,7 +86,7 @@ impl Walker {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
 
             // Check user exclude patterns
-            if is_excluded(&rel_str, &self.config.exclude.patterns) {
+            if is_path_excluded(&rel_str, &self.config.exclude.patterns) {
                 continue;
             }
 
@@ -125,7 +125,7 @@ impl Walker {
     }
 }
 
-fn is_excluded(path: &str, patterns: &[String]) -> bool {
+pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
     for pattern in patterns {
         if let Ok(p) = glob::Pattern::new(pattern) {
             if p.matches(path) {
@@ -165,26 +165,26 @@ mod tests {
 
     #[test]
     fn is_excluded_dir_glob() {
-        assert!(is_excluded("dist/foo.js", &["dist/**".to_string()]));
-        assert!(is_excluded("node_modules/lodash/index.js", &["node_modules/**".to_string()]));
+        assert!(is_path_excluded("dist/foo.js", &["dist/**".to_string()]));
+        assert!(is_path_excluded("node_modules/lodash/index.js", &["node_modules/**".to_string()]));
     }
 
     #[test]
     fn is_excluded_wildcard_ext() {
-        assert!(is_excluded("app.min.js", &["*.min.*".to_string()]));
-        assert!(is_excluded("vendor.bundle.js", &["*.bundle.*".to_string()]));
+        assert!(is_path_excluded("app.min.js", &["*.min.*".to_string()]));
+        assert!(is_path_excluded("vendor.bundle.js", &["*.bundle.*".to_string()]));
     }
 
     #[test]
     fn is_excluded_no_match() {
         let patterns = vec!["target/**".to_string(), "dist/**".to_string()];
-        assert!(!is_excluded("src/main.rs", &patterns));
-        assert!(!is_excluded("README.md", &patterns));
+        assert!(!is_path_excluded("src/main.rs", &patterns));
+        assert!(!is_path_excluded("README.md", &patterns));
     }
 
     #[test]
     fn is_excluded_empty_patterns() {
-        assert!(!is_excluded("src/main.rs", &[]));
+        assert!(!is_path_excluded("src/main.rs", &[]));
     }
 
     #[test]
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn is_excluded_subdir_filename_match() {
         // File in subdir: full path doesn't match *.min.* but filename does
-        assert!(is_excluded("subdir/app.min.js", &["*.min.*".to_string()]));
-        assert!(is_excluded("deep/nested/vendor.bundle.js", &["*.bundle.*".to_string()]));
+        assert!(is_path_excluded("subdir/app.min.js", &["*.min.*".to_string()]));
+        assert!(is_path_excluded("deep/nested/vendor.bundle.js", &["*.bundle.*".to_string()]));
     }
 }

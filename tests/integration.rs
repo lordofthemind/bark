@@ -1171,7 +1171,7 @@ fn rwc_restore_no_backups() {
     let cli = Cli::parse_from(&[
         "bark", "--config", &cfg, "restore",
         "--root", dir.path().to_str().unwrap(),
-        backup_dir.to_str().unwrap(),
+        "--backup-dir", backup_dir.to_str().unwrap(),
     ]);
     bark::run_with_cli(cli).unwrap(); // prints "No backups found." and returns Ok
 }
@@ -1203,7 +1203,7 @@ fn rwc_restore_latest() {
         let cli = Cli::parse_from(&[
             "bark", "--config", &cfg, "restore", "--latest",
             "--root", ".",
-            ".bark_backups",
+            "--backup-dir", ".bark_backups",
         ]);
         bark::run_with_cli(cli)
     })();

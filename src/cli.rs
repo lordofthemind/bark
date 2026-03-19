@@ -138,7 +138,7 @@ pub struct RestoreArgs {
     pub root: Option<PathBuf>,
 
     /// Backup directory to restore from
-    #[arg(default_value = ".bark_backups", value_name = "DIR")]
+    #[arg(long, default_value = ".bark_backups", value_name = "DIR")]
     pub backup_dir: PathBuf,
 
     /// Restore only backups for this specific file

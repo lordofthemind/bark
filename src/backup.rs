@@ -1,6 +1,6 @@
 // File: src/backup.rs
 use anyhow::{Context, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeZone};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -147,11 +147,10 @@ fn parse_backup_entry(backup_path: &Path, backup_dir: &Path) -> Option<BackupEnt
     let (orig_part, ts_part) = without_bak.split_at(without_bak.len() - 15 - 1);
     // ts_part starts with '.'
     let ts_str = ts_part.strip_prefix('.')?;
-    let timestamp = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y%m%d_%H%M%S").ok()?;
-    let timestamp: DateTime<Local> = DateTime::from_naive_utc_and_offset(
-        timestamp,
-        *Local::now().offset(),
-    );
+    let naive = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y%m%d_%H%M%S").ok()?;
+    // The filename timestamp is written in local time, so interpret it as local, not UTC.
+    let timestamp: DateTime<Local> = chrono::Local.from_local_datetime(&naive).single()
+        .unwrap_or_else(|| Local::now());
 
     Some(BackupEntry {
         original: PathBuf::from(orig_part),
