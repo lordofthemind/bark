@@ -363,3 +363,477 @@ mod walkdir {
         out
     }
 }
+
+// ── Direct library tests (instrumented by tarpaulin) ─────────────────────────
+
+#[test]
+fn lib_processor_tags_go_file() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n\nfunc main() {}\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag(dir.path(), &output_path).unwrap();
+
+    assert!(stats.tagged.load(Ordering::Relaxed) > 0, "should tag at least one file");
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(content.starts_with("// File: main.go"), "header should be added");
+}
+
+#[test]
+fn lib_processor_tag_idempotent() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    // Second run: file should be current, not tagged again
+    let proc2 = Processor::new(Arc::clone(&config), dir.path(), backup_dir, false, false, false, None);
+    let stats2 = proc2.run_tag(dir.path(), &output_path).unwrap();
+    assert_eq!(stats2.tagged.load(Ordering::Relaxed), 0, "second run should not re-tag");
+    assert!(stats2.current.load(Ordering::Relaxed) > 0, "second run should report file as current");
+}
+
+#[test]
+fn lib_processor_strip_removes_header() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go\n\npackage main\n",
+    ).unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_strip(dir.path(), &output_path, false).unwrap();
+
+    assert!(stats.stripped.load(Ordering::Relaxed) > 0, "should strip header");
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(!content.contains("// File:"), "header should be removed");
+    assert!(content.contains("package main"), "code should remain");
+}
+
+#[test]
+fn lib_processor_dry_run_does_not_write() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("main.go"), original).unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, true, false, false, None);
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert_eq!(content, original, "dry-run must not modify files");
+}
+
+#[test]
+fn lib_processor_custom_template() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.ts"), "export const x = 1;\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(
+        config,
+        dir.path(),
+        backup_dir,
+        false,
+        false,
+        false,
+        Some("Managed: {{file}}".to_string()),
+    );
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("app.ts")).unwrap();
+    assert!(content.starts_with("// Managed: app.ts"), "custom template should be used");
+}
+
+#[test]
+fn lib_processor_tag_with_backup() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir.clone(), false, false, true, None);
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    assert!(backup_dir.exists(), "backup dir should be created");
+    let has_bak = walkdir_has_extension(&backup_dir, "bak");
+    assert!(has_bak, "backup file should exist");
+}
+
+#[test]
+fn lib_processor_tag_file_by_path() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let file = dir.path().join("util.go");
+    fs::write(&file, "package util\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    proc.tag_file_by_path(&file, dir.path()).unwrap();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.starts_with("// File: util.go"));
+}
+
+#[test]
+fn lib_tree_generator_creates_tree_file() {
+    use bark::tree::TreeGenerator;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/lib.rs"), "").unwrap();
+
+    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".bark_backups");
+
+    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path);
+    let tree_str = gen.generate(&output_path).unwrap();
+
+    assert!(tree_str.contains("main.go"), "tree should include main.go");
+    assert!(tree_str.contains("src"), "tree should include src dir");
+    assert!(output_path.exists(), "tree.txt should be written to disk");
+    let on_disk = fs::read_to_string(&output_path).unwrap();
+    assert_eq!(tree_str, on_disk, "returned string should match file content");
+}
+
+#[test]
+fn lib_tree_generator_excludes_backup_dir() {
+    use bark::tree::TreeGenerator;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let backup_dir = dir.path().join(".bark_backups");
+    fs::create_dir_all(&backup_dir).unwrap();
+    fs::write(backup_dir.join("main.go.20260101_000000.bak"), "old content").unwrap();
+
+    let output_path = dir.path().join("tree.txt");
+    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path);
+    let tree_str = gen.generate(&output_path).unwrap();
+
+    assert!(!tree_str.contains(".bark_backups"), "backup dir should be excluded from tree");
+}
+
+#[test]
+fn lib_walker_finds_source_files() {
+    use bark::config::Config;
+    use bark::walker::Walker;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    fs::write(dir.path().join("README.md"), "# README\n").unwrap();
+    fs::write(dir.path().join("data.xyz"), "unknown format\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".bark_backups");
+
+    let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
+    let entries = walker.walk();
+
+    let paths: Vec<String> = entries.iter()
+        .map(|e| e.rel_path.to_string_lossy().to_string())
+        .collect();
+
+    assert!(paths.iter().any(|p| p.contains("main.go")), "should find go file");
+    assert!(paths.iter().any(|p| p.contains("README.md")), "should find markdown file");
+    assert!(!paths.iter().any(|p| p.contains("data.xyz")), "should skip unknown extension");
+}
+
+#[test]
+fn lib_walker_skips_excluded_patterns() {
+    use bark::config::Config;
+    use bark::walker::Walker;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("app.min.js"), "minified").unwrap();
+    fs::write(dir.path().join("app.js"), "normal js").unwrap();
+
+    let config = Arc::new(Config::default()); // default excludes *.min.*
+    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".bark_backups");
+
+    let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
+    let entries = walker.walk();
+
+    let paths: Vec<String> = entries.iter()
+        .map(|e| e.rel_path.to_string_lossy().to_string())
+        .collect();
+
+    assert!(paths.iter().any(|p| p.contains("app.js")), "normal js should be found");
+    assert!(!paths.iter().any(|p| p.contains("app.min.js")), "minified file should be excluded");
+}
+
+#[test]
+fn lib_backup_list_and_restore() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("main.go");
+    fs::write(&source, "original content\n").unwrap();
+
+    let backup_dir = dir.path().join(".bark_backups");
+    let mgr = BackupManager::new(backup_dir.clone(), true);
+
+    // Create a backup
+    let backup_result = mgr.backup(&source, dir.path()).unwrap();
+    assert!(backup_result.is_some(), "backup should be created");
+    let backup_path = backup_result.unwrap();
+    assert!(backup_path.exists(), "backup file should exist on disk");
+
+    // List backups
+    let entries = mgr.list_backups(None, dir.path()).unwrap();
+    assert_eq!(entries.len(), 1, "should find exactly one backup");
+    assert_eq!(entries[0].original, std::path::PathBuf::from("main.go"));
+
+    // Verify backup content matches original
+    let backup_content = fs::read_to_string(&entries[0].backup_path).unwrap();
+    assert_eq!(backup_content, "original content\n", "backup should contain original content");
+
+    // Restore back to the absolute source path (bypassing the relative-path design)
+    fs::write(&source, "modified content\n").unwrap();
+    fs::copy(&entries[0].backup_path, &source).unwrap();
+    let restored = fs::read_to_string(&source).unwrap();
+    assert_eq!(restored, "original content\n", "content should be restored");
+}
+
+#[test]
+fn lib_backup_restore_dry_run() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("main.go");
+    fs::write(&source, "original content\n").unwrap();
+
+    let backup_dir = dir.path().join(".bark_backups");
+    let mgr = BackupManager::new(backup_dir, true);
+    mgr.backup(&source, dir.path()).unwrap();
+
+    let entries = mgr.list_backups(None, dir.path()).unwrap();
+    fs::write(&source, "modified\n").unwrap();
+
+    // Dry-run restore should not change file
+    mgr.restore(&entries[0], true).unwrap();
+    let content = fs::read_to_string(&source).unwrap();
+    assert_eq!(content, "modified\n", "dry-run restore must not modify file");
+}
+
+#[test]
+fn lib_backup_list_empty_when_no_backup_dir() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".bark_backups"); // does not exist
+    let mgr = BackupManager::new(backup_dir, false);
+    let entries = mgr.list_backups(None, dir.path()).unwrap();
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn lib_template_context_new() {
+    use bark::template::{render, TemplateContext};
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    let ctx = TemplateContext::new(
+        Path::new("src/main.rs"),
+        "%Y-%m-%d",
+        "Alice".to_string(),
+        "myproject".to_string(),
+        HashMap::new(),
+    );
+
+    assert_eq!(ctx.file, "src/main.rs");
+    assert_eq!(ctx.author, "Alice");
+    assert_eq!(ctx.project, "myproject");
+    assert_eq!(ctx.filename, "main");
+    assert_eq!(ctx.ext, "rs");
+    assert!(!ctx.year.is_empty(), "year should be populated");
+    assert!(!ctx.date.is_empty(), "date should be populated");
+
+    // Verify render works with this context
+    let output = render("File: {{file}} ({{year}})", &ctx);
+    assert!(output.starts_with("File: src/main.rs ("), "render should substitute vars");
+}
+
+#[test]
+fn lib_config_find_and_load() {
+    use bark::config::Config;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".bark.toml"),
+        "[template]\ndefault = \"File: {{file}} | TEST\"\n",
+    ).unwrap();
+
+    let config = Config::find_and_load(dir.path()).unwrap();
+    assert!(config.is_some(), "should find .bark.toml");
+    let config = config.unwrap();
+    assert!(config.template.default.contains("TEST"), "custom template should be loaded");
+}
+
+#[test]
+fn lib_config_find_and_load_walks_upward() {
+    use bark::config::Config;
+
+    let dir = TempDir::new().unwrap();
+    let subdir = dir.path().join("src").join("pkg");
+    fs::create_dir_all(&subdir).unwrap();
+    fs::write(
+        dir.path().join(".bark.toml"),
+        "[template]\ndefault = \"File: {{file}} | PARENT\"\n",
+    ).unwrap();
+
+    // Search starting from a nested subdirectory
+    let config = Config::find_and_load(&subdir).unwrap();
+    assert!(config.is_some(), "should find .bark.toml in parent dir");
+    let config = config.unwrap();
+    assert!(config.template.default.contains("PARENT"));
+}
+
+#[test]
+fn lib_processor_verbose_current() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    // First run: tag the file
+    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    // Second run with verbose: should print "current" for the already-tagged file
+    let proc2 = Processor::new(Arc::clone(&config), dir.path(), backup_dir, false, true, false, None);
+    let stats = proc2.run_tag(dir.path(), &output_path).unwrap();
+    use std::sync::atomic::Ordering;
+    assert!(stats.current.load(Ordering::Relaxed) > 0);
+}
+
+#[test]
+fn lib_processor_tag_updates_stale_header() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    // First run: tag with default template
+    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    // Second run: tag with different template → should produce TagResult::Updated
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        true, // verbose
+        false,
+        Some("File: {{file}} | v2".to_string()),
+    );
+    let stats = proc2.run_tag(dir.path(), &output_path).unwrap();
+    assert!(stats.updated.load(Ordering::Relaxed) > 0, "re-tagging with new template should update");
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert!(content.contains("| v2"), "updated template should be in file");
+}
+
+#[test]
+fn lib_processor_strip_dry_run() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "// File: main.go\n\npackage main\n";
+    fs::write(dir.path().join("main.go"), original).unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("tree.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, true, false, false, None);
+    proc.run_strip(dir.path(), &output_path, false).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
+    assert_eq!(content, original, "strip dry-run must not modify file");
+}

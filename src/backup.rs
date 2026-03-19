@@ -208,6 +208,99 @@ mod tests {
     }
 
     #[test]
+    fn list_backups_filter_by_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+        let backup_dir = root.join(".bark_backups");
+
+        // Create two fake backup files
+        std::fs::create_dir_all(&backup_dir).unwrap();
+        std::fs::write(
+            backup_dir.join("src/main.rs.20260319_120000.bak"),
+            "main content",
+        ).unwrap_or_else(|_| {
+            std::fs::create_dir_all(backup_dir.join("src")).unwrap();
+            std::fs::write(backup_dir.join("src/main.rs.20260319_120000.bak"), "main content").unwrap();
+        });
+        std::fs::create_dir_all(backup_dir.join("src")).unwrap();
+        std::fs::write(backup_dir.join("src/main.rs.20260319_120000.bak"), "main content").unwrap();
+        std::fs::write(backup_dir.join("lib.rs.20260319_120001.bak"), "lib content").unwrap();
+
+        let mgr = BackupManager::new(backup_dir, false);
+        let all = mgr.list_backups(None, &root).unwrap();
+        assert_eq!(all.len(), 2, "should find both backups");
+
+        let filtered = mgr.list_backups(Some(std::path::Path::new("main.rs")), &root).unwrap();
+        assert_eq!(filtered.len(), 1, "filter should find only main.rs backup");
+    }
+
+    #[test]
+    fn restore_copies_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".bark_backups");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+
+        let bak = backup_dir.join("out.rs.20260319_120000.bak");
+        std::fs::write(&bak, "backup content\n").unwrap();
+        let dest = tmp.path().join("out.rs");
+
+        // Build a BackupEntry with an *absolute* original path so restore() writes to the right place
+        let entry = BackupEntry {
+            original: dest.clone(),
+            backup_path: bak,
+            timestamp: chrono::Local::now(),
+        };
+
+        let mgr = BackupManager::new(backup_dir, false);
+        mgr.restore(&entry, false).unwrap();
+
+        assert!(dest.exists(), "restored file should exist");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "backup content\n");
+    }
+
+    #[test]
+    fn restore_creates_parent_dirs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".bark_backups");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+
+        let bak = backup_dir.join("source.rs.20260319_120000.bak");
+        std::fs::write(&bak, "content\n").unwrap();
+        // Destination in a subdirectory that doesn't yet exist
+        let dest = tmp.path().join("nested").join("dir").join("source.rs");
+
+        let entry = BackupEntry {
+            original: dest.clone(),
+            backup_path: bak,
+            timestamp: chrono::Local::now(),
+        };
+
+        let mgr = BackupManager::new(backup_dir, false);
+        mgr.restore(&entry, false).unwrap();
+        assert!(dest.exists());
+    }
+
+    #[test]
+    fn parse_backup_entry_too_short() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Filename ends in .bak but the stem is too short to contain a timestamp
+        let bad = tmp.path().join("a.bak");
+        std::fs::write(&bad, "x").unwrap();
+        assert!(parse_backup_entry(&bad, tmp.path()).is_none());
+    }
+
+    #[test]
+    fn backup_disabled_returns_none() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("main.rs");
+        std::fs::write(&source, "content").unwrap();
+
+        let mgr = BackupManager::new(tmp.path().join(".bark_backups"), false);
+        let result = mgr.backup(&source, tmp.path()).unwrap();
+        assert!(result.is_none(), "disabled backup should return None");
+    }
+
+    #[test]
     fn backup_creates_file_in_backup_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();

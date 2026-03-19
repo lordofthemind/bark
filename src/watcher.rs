@@ -147,3 +147,61 @@ fn is_write_event(kind: &EventKind) -> bool {
         EventKind::Create(_) | EventKind::Modify(notify::event::ModifyKind::Data(_))
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notify::event::{CreateKind, ModifyKind, DataChange, RemoveKind};
+
+    #[test]
+    fn is_write_event_create_is_true() {
+        assert!(is_write_event(&EventKind::Create(CreateKind::File)));
+        assert!(is_write_event(&EventKind::Create(CreateKind::Any)));
+    }
+
+    #[test]
+    fn is_write_event_modify_data_is_true() {
+        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(DataChange::Content))));
+        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+    }
+
+    #[test]
+    fn is_write_event_remove_is_false() {
+        assert!(!is_write_event(&EventKind::Remove(RemoveKind::File)));
+    }
+
+    #[test]
+    fn is_write_event_other_modify_is_false() {
+        assert!(!is_write_event(&EventKind::Modify(ModifyKind::Metadata(
+            notify::event::MetadataKind::Any
+        ))));
+    }
+
+    #[test]
+    fn file_watcher_new() {
+        use crate::config::Config;
+        use crate::processor::Processor;
+        use std::sync::Arc;
+
+        let config = Arc::new(Config::default());
+        let tmp = tempfile::TempDir::new().unwrap();
+        let proc = Arc::new(Processor::new(
+            config,
+            tmp.path(),
+            tmp.path().join(".bark_backups"),
+            false,
+            false,
+            false,
+            None,
+        ));
+        let fw = FileWatcher::new(
+            proc,
+            500,
+            tmp.path().join("tree.txt"),
+            false,
+        );
+        // Just verify construction succeeds and fields are set
+        assert_eq!(fw.debounce_ms, 500);
+        assert!(!fw.dry_run);
+    }
+}

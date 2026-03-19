@@ -217,4 +217,31 @@ mod tests {
         assert_eq!(walker.resolve_style("py"), Some(CommentStyle::Hash));
         assert_eq!(walker.resolve_style("xyz"), None);
     }
+
+    #[test]
+    fn resolve_style_custom_css_and_html() {
+        let mut config = Config::default();
+        config.extensions.custom = vec![
+            CustomExtension { ext: "mytml".to_string(), style: "html".to_string() },
+            CustomExtension { ext: "mystyle".to_string(), style: "css".to_string() },
+            CustomExtension { ext: "myunknown".to_string(), style: "invalid".to_string() },
+        ];
+        let config = std::sync::Arc::new(config);
+        let walker = Walker::new(
+            std::path::PathBuf::from("."),
+            config,
+            std::path::PathBuf::from("tree.txt"),
+            std::path::PathBuf::from(".bark_backups"),
+        );
+        assert_eq!(walker.resolve_style("mytml"), Some(CommentStyle::Html));
+        assert_eq!(walker.resolve_style("mystyle"), Some(CommentStyle::Css));
+        assert_eq!(walker.resolve_style("myunknown"), None); // invalid style → None
+    }
+
+    #[test]
+    fn is_excluded_subdir_filename_match() {
+        // File in subdir: full path doesn't match *.min.* but filename does
+        assert!(is_excluded("subdir/app.min.js", &["*.min.*".to_string()]));
+        assert!(is_excluded("deep/nested/vendor.bundle.js", &["*.bundle.*".to_string()]));
+    }
 }

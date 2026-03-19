@@ -241,4 +241,36 @@ team = "backend"
         std::fs::write(tmp.path(), "not valid toml :::").unwrap();
         assert!(Config::from_file(tmp.path()).is_err());
     }
+
+    #[test]
+    fn config_find_and_load_no_config_file() {
+        // A temp dir with no .bark.toml — find_and_load should walk up, check home, return None
+        // (assumes no .bark.toml in /tmp ancestry and no ~/.config/bark/config.toml)
+        let dir = tempfile::TempDir::new().unwrap();
+        // Just verify it doesn't panic; result might be None or Some if user config exists
+        let result = Config::find_and_load(dir.path());
+        assert!(result.is_ok(), "find_and_load should not error");
+    }
+
+    #[test]
+    fn home_dir_returns_some_on_unix() {
+        // On Linux/macOS, HOME should be set
+        if std::env::var("HOME").is_ok() {
+            assert!(super::home_dir().is_some());
+        }
+    }
+
+    #[test]
+    fn watch_config_defaults() {
+        let c = WatchConfig::default();
+        assert_eq!(c.debounce_ms, 500);
+        assert!(c.ignore.is_empty());
+    }
+
+    #[test]
+    fn exclude_config_defaults() {
+        let c = ExcludeConfig::default();
+        assert!(c.patterns.contains(&"*.min.*".to_string()));
+        assert!(c.patterns.contains(&"target/**".to_string()));
+    }
 }
