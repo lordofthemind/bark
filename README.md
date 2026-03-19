@@ -50,13 +50,13 @@
 Downloads the pre-built binary for your platform from the latest GitHub release.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/master/install.sh | bash
 ```
 
 Installs to `~/.local/bin` by default. Override with `BARK_INSTALL_DIR`:
 
 ```bash
-BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/main/install.sh | bash
+BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/master/install.sh | bash
 ```
 
 **Supported platforms:**
@@ -71,6 +71,8 @@ BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/lor
 
 ### Cargo
 
+Installs the `bark` binary to `~/.cargo/bin` (already in your `PATH` if you installed Rust via rustup):
+
 ```bash
 cargo install --git https://github.com/lordofthemind/bark
 ```
@@ -80,10 +82,10 @@ cargo install --git https://github.com/lordofthemind/bark
 ```bash
 git clone https://github.com/lordofthemind/bark
 cd bark
-cargo install --path . --root ~/.local
+cargo install --path .
 ```
 
-Make sure `~/.local/bin` is in your `PATH`.
+This also installs to `~/.cargo/bin`.
 
 ---
 
@@ -640,10 +642,10 @@ bark watch --debounce 1000  # 1 s — fewer redundant writes
 ```bash
 git clone https://github.com/lordofthemind/bark
 cd bark
-cargo build --release
+cargo install --path .
 ```
 
-The binary is at `target/release/bark`.
+This installs to `~/.cargo/bin/bark`. To only build without installing, run `cargo build --release`; the binary lands at `target/release/bark`.
 
 **Run tests:**
 
@@ -666,7 +668,7 @@ Current coverage: **92.79%** across 666 instrumented lines.
 
 ### Continuous integration
 
-Every push to `main`/`master` and every pull request runs the full test suite on Ubuntu, macOS, and Windows:
+Every push to `master` and every pull request runs the full test suite on Ubuntu, macOS, and Windows:
 
 ```
 cargo test

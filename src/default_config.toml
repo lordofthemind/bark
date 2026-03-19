@@ -1,4 +1,4 @@
-# .bark.toml — project configuration for bark
+# File: src/default_config.toml
 
 [general]
 output      = "tree.txt"        # tree output filename
