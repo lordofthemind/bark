@@ -13,16 +13,39 @@ pub enum CommentStyle {
 impl CommentStyle {
     pub fn from_ext(ext: &str) -> Option<Self> {
         match ext {
-            "go" | "rs" | "js" | "ts" | "jsx" | "tsx" | "java" | "kt" | "kts"
-            | "cpp" | "cc" | "cxx" | "c" | "h" | "hpp" | "cs" | "swift" | "php"
-            | "scala" | "groovy" | "dart" => Some(Self::Slash),
+            // C-family, JVM, systems, modern compiled
+            "go" | "rs" | "js" | "mjs" | "cjs"
+            | "ts" | "tsx" | "jsx" | "mts" | "cts"
+            | "java" | "kt" | "kts" | "scala" | "groovy"
+            | "cpp" | "cc" | "cxx" | "c" | "h" | "hpp" | "hxx"
+            | "cs" | "swift" | "m" | "mm"
+            | "dart" | "php"
+            // Systems / low-level
+            | "zig" | "v" | "odin" | "gleam"
+            // Web / shader
+            | "wgsl" | "glsl" | "hlsl"
+            // Other compiled
+            | "sol" | "proto" | "thrift"
+            | "fs" | "fsi" | "fsx"    // F#
+            | "purs" | "elm"           // functional
+            => Some(Self::Slash),
 
-            "py" | "rb" | "sh" | "bash" | "zsh" | "fish" | "pl" | "pm" | "r"
-            | "md" | "txt" | "toml" | "yaml" | "yml" => Some(Self::Hash),
+            // Config / data / scripting languages (non-shell)
+            "py" | "rb" | "cr" | "nim"
+            | "ex" | "exs"             // Elixir
+            | "jl"                     // Julia
+            | "tf" | "tfvars" | "hcl"  // Terraform / HCL
+            | "nix"                    // Nix
+            | "graphql" | "gql"
+            | "md" | "txt"
+            | "toml" | "yaml" | "yml"
+            => Some(Self::Hash),
 
-            "css" | "scss" | "sass" | "less" => Some(Self::Css),
+            "css" | "scss" | "sass" | "less" | "styl" => Some(Self::Css),
 
-            "html" | "htm" | "xml" | "svg" | "vue" | "svelte" => Some(Self::Html),
+            "html" | "htm" | "xml" | "svg"
+            | "vue" | "svelte" | "astro"
+            => Some(Self::Html),
 
             _ => None,
         }
@@ -111,21 +134,30 @@ pub fn apply_tag(content: &str, desired_header: &str, style: CommentStyle) -> St
         out.push(lines[0].to_string());
         // Check whether line 1 is an existing header
         let header_idx = if lines.len() > 1 && re.is_match(lines[1]) { 1 } else { usize::MAX };
-        let rest_start = if header_idx == 1 {
-            // Skip old header and optional blank line after it
+        let mut rest_start = if header_idx == 1 {
             if lines.get(2).map_or(false, |l| l.trim().is_empty()) { 3 } else { 2 }
         } else {
             1
         };
         out.push(desired_header.to_string());
+        // Exactly one blank line after header — skip any existing leading blanks
+        while rest_start < lines.len() && lines[rest_start].trim().is_empty() {
+            rest_start += 1;
+        }
+        out.push(String::new());
         out.extend(lines[rest_start..].iter().map(|l| l.to_string()));
     } else {
-        let rest_start = if re.is_match(lines[0]) {
+        let mut rest_start = if re.is_match(lines[0]) {
             if lines.get(1).map_or(false, |l| l.trim().is_empty()) { 2 } else { 1 }
         } else {
             0
         };
         out.push(desired_header.to_string());
+        // Exactly one blank line after header — skip any existing leading blanks
+        while rest_start < lines.len() && lines[rest_start].trim().is_empty() {
+            rest_start += 1;
+        }
+        out.push(String::new());
         out.extend(lines[rest_start..].iter().map(|l| l.to_string()));
     }
 
