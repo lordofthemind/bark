@@ -5,7 +5,13 @@ version = "0.0.1"
 edition = "2021"
 description = "Smart file header management and directory tree generator"
 license = "MIT"
-authors = ["gourdian25", "lordofthemind"]
+authors = ["lordofthemind"]
+repository = "https://github.com/lordofthemind/bark"
+homepage = "https://github.com/lordofthemind/bark"
+documentation = "https://github.com/lordofthemind/bark#readme"
+keywords = ["cli", "header", "tree", "tagger", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [[bin]]
 name = "bark"

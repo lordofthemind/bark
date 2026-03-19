@@ -50,13 +50,13 @@
 Downloads the pre-built binary for your platform from the latest GitHub release.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gourdian25/bark/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/main/install.sh | bash
 ```
 
 Installs to `~/.local/bin` by default. Override with `BARK_INSTALL_DIR`:
 
 ```bash
-BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/gourdian25/bark/main/install.sh | bash
+BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/main/install.sh | bash
 ```
 
 **Supported platforms:**
@@ -72,13 +72,13 @@ BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/gou
 ### Cargo
 
 ```bash
-cargo install bark-tagger
+cargo install --git https://github.com/lordofthemind/bark
 ```
 
 ### Build from source
 
 ```bash
-git clone https://github.com/gourdian25/bark
+git clone https://github.com/lordofthemind/bark
 cd bark
 cargo install --path . --root ~/.local
 ```
@@ -627,7 +627,7 @@ bark watch --debounce 1000  # 1 s — fewer redundant writes
 **Prerequisites:** Rust stable (1.70+)
 
 ```bash
-git clone https://github.com/gourdian25/bark
+git clone https://github.com/lordofthemind/bark
 cd bark
 cargo build --release
 ```
@@ -686,4 +686,4 @@ Tags containing a `-` (e.g., `v1.2.0-beta`) are automatically marked as pre-rele
 
 MIT — see [LICENSE](LICENSE).
 
-Authors: [gourdian25](https://github.com/gourdian25), [lordofthemind](https://github.com/lordofthemind)
+Authors: [lordofthemind](https://github.com/lordofthemind), [lordofthemind](https://github.com/lordofthemind)
