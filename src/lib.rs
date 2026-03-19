@@ -250,8 +250,8 @@ pub fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     let errors  = stats.errors.load(Ordering::Relaxed);
     let total = tagged + updated + current + skipped + errors;
     if total == 0 {
-        println!("  {} — add extensions in .bark.toml, or run {} to debug",
-            "no matching files found".yellow(), "bark tag -v".bold());
+        println!("  {} — run {} to debug, or {} to create a config",
+            "no matching files found".yellow(), "bark tag -v".bold(), "bark init".bold());
         return;
     }
     if tagged  > 0 { println!("  {} tagged",   tagged.to_string().purple()); }

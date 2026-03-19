@@ -38,7 +38,7 @@ pub enum Commands {
     Init(InitArgs),
 }
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug)]
 pub struct TagArgs {
     /// Preview changes without modifying files
     #[arg(short = 'n', long)]
@@ -75,6 +75,22 @@ pub struct TagArgs {
     /// Skip generating tree.txt
     #[arg(long)]
     pub no_tree: bool,
+}
+
+impl Default for TagArgs {
+    fn default() -> Self {
+        Self {
+            dry_run: false,
+            force: false,
+            output: PathBuf::from("tree.txt"),
+            backup_dir: PathBuf::from(".bark_backups"),
+            root: None,
+            template: None,
+            max_size: None,
+            threads: 0,
+            no_tree: false,
+        }
+    }
 }
 
 #[derive(Args, Debug)]
