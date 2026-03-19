@@ -60,3 +60,71 @@ pub fn render(template: &str, ctx: &TemplateContext) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_ctx(file: &str) -> TemplateContext {
+        TemplateContext {
+            file: file.to_string(),
+            date: "2026-03-19".to_string(),
+            year: "2026".to_string(),
+            author: "alice".to_string(),
+            project: "myproject".to_string(),
+            filename: "main".to_string(),
+            ext: "rs".to_string(),
+            custom: std::collections::HashMap::from([
+                ("team".to_string(), "platform".to_string()),
+            ]),
+        }
+    }
+
+    #[test]
+    fn render_file_var() {
+        let ctx = make_ctx("src/main.rs");
+        assert_eq!(render("File: {{file}}", &ctx), "File: src/main.rs");
+    }
+
+    #[test]
+    fn render_all_builtins() {
+        let ctx = make_ctx("src/lib.rs");
+        let tpl = "{{file}} {{date}} {{year}} {{author}} {{project}} {{filename}} {{ext}}";
+        let result = render(tpl, &ctx);
+        assert!(result.contains("src/lib.rs"));
+        assert!(result.contains("2026-03-19"));
+        assert!(result.contains("2026"));
+        assert!(result.contains("alice"));
+        assert!(result.contains("myproject"));
+        assert!(result.contains("main"));
+        assert!(result.contains("rs"));
+    }
+
+    #[test]
+    fn render_custom_vars() {
+        let ctx = make_ctx("x.rs");
+        let result = render("Team: {{team}}", &ctx);
+        assert_eq!(result, "Team: platform");
+    }
+
+    #[test]
+    fn render_unknown_var_passthrough() {
+        let ctx = make_ctx("x.rs");
+        // Unknown variables are left as-is
+        let result = render("{{unknown}}", &ctx);
+        assert_eq!(result, "{{unknown}}");
+    }
+
+    #[test]
+    fn render_no_vars() {
+        let ctx = make_ctx("x.rs");
+        assert_eq!(render("just text", &ctx), "just text");
+    }
+
+    #[test]
+    fn render_multiple_same_var() {
+        let ctx = make_ctx("a/b.rs");
+        let result = render("{{file}} and {{file}}", &ctx);
+        assert_eq!(result, "a/b.rs and a/b.rs");
+    }
+}

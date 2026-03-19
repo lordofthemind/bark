@@ -159,3 +159,70 @@ fn parse_backup_entry(backup_path: &Path, backup_dir: &Path) -> Option<BackupEnt
         timestamp,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_backup_entry_valid() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let backup_dir = tmp.path().to_path_buf();
+
+        // Create a fake backup file with the expected naming convention
+        let fake_backup = backup_dir.join("src/main.rs.20260319_142022.bak");
+        std::fs::create_dir_all(fake_backup.parent().unwrap()).unwrap();
+        std::fs::write(&fake_backup, "content").unwrap();
+
+        let entry = parse_backup_entry(&fake_backup, &backup_dir);
+        assert!(entry.is_some(), "should parse a valid backup filename");
+        let e = entry.unwrap();
+        assert_eq!(e.original, PathBuf::from("src/main.rs"));
+    }
+
+    #[test]
+    fn parse_backup_entry_invalid() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bad = tmp.path().join("not_a_backup.txt");
+        std::fs::write(&bad, "x").unwrap();
+        assert!(parse_backup_entry(&bad, tmp.path()).is_none());
+    }
+
+    #[test]
+    fn write_atomic_creates_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let target = tmp.path().join("output.txt");
+        BackupManager::write_atomic(&target, "hello bark\n").unwrap();
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, "hello bark\n");
+    }
+
+    #[test]
+    fn write_atomic_overwrites_existing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let target = tmp.path().join("output.txt");
+        std::fs::write(&target, "old content\n").unwrap();
+        BackupManager::write_atomic(&target, "new content\n").unwrap();
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, "new content\n");
+    }
+
+    #[test]
+    fn backup_creates_file_in_backup_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+        let source = root.join("src/main.rs");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, "original content\n").unwrap();
+
+        let backup_dir = root.join(".bark_backups");
+        let mgr = BackupManager::new(backup_dir.clone(), true);
+        let result = mgr.backup(&source, &root).unwrap();
+
+        assert!(result.is_some());
+        let backup_path = result.unwrap();
+        assert!(backup_path.exists());
+        let content = std::fs::read_to_string(&backup_path).unwrap();
+        assert_eq!(content, "original content\n");
+    }
+}

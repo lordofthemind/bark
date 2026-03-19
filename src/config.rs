@@ -176,3 +176,69 @@ pub fn home_dir() -> Option<PathBuf> {
         .or_else(|| std::env::var("USERPROFILE").ok())
         .map(PathBuf::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn config_defaults() {
+        let c = Config::default();
+        assert_eq!(c.general.output, "tree.txt");
+        assert_eq!(c.general.backup_dir, ".bark_backups");
+        assert_eq!(c.general.max_file_size, 1_048_576);
+        assert!(c.general.backup);
+        assert_eq!(c.template.default, "File: {{file}}");
+        assert_eq!(c.template.date_format, "%Y-%m-%d");
+        assert!(!c.exclude.patterns.is_empty());
+    }
+
+    #[test]
+    fn config_from_minimal_toml() {
+        let toml = r#"
+[general]
+output = "my_tree.txt"
+"#;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), toml).unwrap();
+        let c = Config::from_file(tmp.path()).unwrap();
+        assert_eq!(c.general.output, "my_tree.txt");
+        // Everything else falls back to defaults
+        assert_eq!(c.general.backup_dir, ".bark_backups");
+        assert_eq!(c.template.default, "File: {{file}}");
+    }
+
+    #[test]
+    fn config_template_override() {
+        let toml = r#"
+[template]
+default = "File: {{file}} | Author: {{author}}"
+"#;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), toml).unwrap();
+        let c = Config::from_file(tmp.path()).unwrap();
+        assert_eq!(c.template.default, "File: {{file}} | Author: {{author}}");
+    }
+
+    #[test]
+    fn config_custom_variables() {
+        let toml = r#"
+[template.variables]
+author = "Bob"
+team = "backend"
+"#;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), toml).unwrap();
+        let c = Config::from_file(tmp.path()).unwrap();
+        assert_eq!(c.template.variables.get("author").map(|s| s.as_str()), Some("Bob"));
+        assert_eq!(c.template.variables.get("team").map(|s| s.as_str()), Some("backend"));
+    }
+
+    #[test]
+    fn config_invalid_toml_errors() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "not valid toml :::").unwrap();
+        assert!(Config::from_file(tmp.path()).is_err());
+    }
+}

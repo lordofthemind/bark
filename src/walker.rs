@@ -157,3 +157,64 @@ fn is_binary(path: &Path) -> bool {
     };
     content_inspector::inspect(&buf[..n]) == content_inspector::ContentType::BINARY
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, CustomExtension};
+
+    #[test]
+    fn is_excluded_dir_glob() {
+        assert!(is_excluded("dist/foo.js", &["dist/**".to_string()]));
+        assert!(is_excluded("node_modules/lodash/index.js", &["node_modules/**".to_string()]));
+    }
+
+    #[test]
+    fn is_excluded_wildcard_ext() {
+        assert!(is_excluded("app.min.js", &["*.min.*".to_string()]));
+        assert!(is_excluded("vendor.bundle.js", &["*.bundle.*".to_string()]));
+    }
+
+    #[test]
+    fn is_excluded_no_match() {
+        let patterns = vec!["target/**".to_string(), "dist/**".to_string()];
+        assert!(!is_excluded("src/main.rs", &patterns));
+        assert!(!is_excluded("README.md", &patterns));
+    }
+
+    #[test]
+    fn is_excluded_empty_patterns() {
+        assert!(!is_excluded("src/main.rs", &[]));
+    }
+
+    #[test]
+    fn resolve_style_custom_overrides_builtin() {
+        let mut config = Config::default();
+        config.extensions.custom = vec![
+            CustomExtension { ext: "rs".to_string(), style: "hash".to_string() },
+        ];
+        let config = std::sync::Arc::new(config);
+        let walker = Walker::new(
+            std::path::PathBuf::from("."),
+            config,
+            std::path::PathBuf::from("tree.txt"),
+            std::path::PathBuf::from(".bark_backups"),
+        );
+        // .rs normally maps to Slash; custom override sets it to Hash
+        assert_eq!(walker.resolve_style("rs"), Some(CommentStyle::Hash));
+    }
+
+    #[test]
+    fn resolve_style_builtin_fallthrough() {
+        let config = std::sync::Arc::new(Config::default());
+        let walker = Walker::new(
+            std::path::PathBuf::from("."),
+            config,
+            std::path::PathBuf::from("tree.txt"),
+            std::path::PathBuf::from(".bark_backups"),
+        );
+        assert_eq!(walker.resolve_style("go"), Some(CommentStyle::Slash));
+        assert_eq!(walker.resolve_style("py"), Some(CommentStyle::Hash));
+        assert_eq!(walker.resolve_style("xyz"), None);
+    }
+}

@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Run tests before building ───────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test
+
+  # ── Build cross-platform release binaries ───────────────────────────────────
+  build:
+    name: Build — ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: bark-linux-x86_64.tar.gz
+
+          # Linux ARM64 (Raspberry Pi, AWS Graviton, etc.)
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: bark-linux-aarch64.tar.gz
+            cross: true
+
+          # macOS Intel
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: bark-macos-x86_64.tar.gz
+
+          # macOS Apple Silicon
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: bark-macos-aarch64.tar.gz
+
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: bark-windows-x86_64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Install cross for ARM64 Linux cross-compilation
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      # ── Package ────────────────────────────────────────────────────────────
+
+      - name: Package (Unix tar.gz)
+        if: runner.os != 'Windows'
+        run: |
+          BINARY="target/${{ matrix.target }}/release/bark"
+          tar -czf ${{ matrix.artifact }} -C "$(dirname $BINARY)" "$(basename $BINARY)"
+
+      - name: Package (Windows zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = "target\${{ matrix.target }}\release\bark.exe"
+          Compress-Archive -Path $binary -DestinationPath ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  # ── Create GitHub Release and attach binaries ───────────────────────────────
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}  # v1.0.0-beta → pre-release
