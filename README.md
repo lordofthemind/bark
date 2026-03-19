@@ -285,16 +285,16 @@ bark watch --dry-run
 Restore files from bark's timestamped backups.
 
 ```
-bark restore [OPTIONS] [BACKUP_DIR]
+bark restore [OPTIONS]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--root <DIR>` | `.` | Project root directory |
+| `--backup-dir <DIR>` | `.bark_backups` | Backup directory to read from |
 | `--file <FILE>` | — | Filter to backups of a specific file |
 | `-n, --dry-run` | — | Preview what would be restored |
 | `--latest` | — | Auto-restore the most recent backup of each file |
-| `[BACKUP_DIR]` | `.bark_backups` | Backup directory to read from |
 
 **Interactive mode** (no `--latest`): lists all backups with timestamps and prompts for a number.
 
@@ -319,6 +319,9 @@ bark restore --latest
 # Restore only one file, preview first
 bark restore --dry-run --file src/main.rs
 bark restore --file src/main.rs
+
+# Use a non-default backup directory
+bark restore --backup-dir /path/to/backups --latest
 ```
 
 ---
@@ -560,6 +563,8 @@ The naming format is:
 <relative/path/to/file>.<YYYYMMDD_HHMMSS>.bak
 ```
 
+Timestamps are recorded in your local timezone, so the time shown in `bark restore` always matches your system clock.
+
 ### Disable backups
 
 To skip backup creation for a single run:
@@ -595,6 +600,12 @@ Lists all backups with timestamps. Enter the number of the version to restore, o
 bark restore --file src/main.rs
 ```
 
+### Use a custom backup location
+
+```bash
+bark restore --backup-dir /mnt/safe/backups --latest
+```
+
 ---
 
 ## Watch mode
@@ -608,7 +619,7 @@ bark watch
 
 Every time you save a file:
 1. bark waits for the debounce window (default 500 ms) to collect burst saves.
-2. All modified files are tagged in parallel.
+2. Modified files are tagged — the same exclude patterns, skip list, and custom extensions from your config apply.
 3. `tree.txt` is regenerated.
 
 bark tracks files it just wrote so it never enters a self-tagging loop.
