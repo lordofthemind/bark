@@ -639,7 +639,7 @@ fn lib_tree_generator_creates_tree_file() {
     let output_path = dir.path().join("tree.txt");
     let backup_dir = dir.path().join(".bark_backups");
 
-    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path);
+    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path, &[]);
     let tree_str = gen.generate(&output_path).unwrap();
 
     assert!(tree_str.contains("main.go"), "tree should include main.go");
@@ -667,7 +667,7 @@ fn lib_tree_generator_excludes_backup_dir() {
     .unwrap();
 
     let output_path = dir.path().join("tree.txt");
-    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path);
+    let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path, &[]);
     let tree_str = gen.generate(&output_path).unwrap();
 
     assert!(

@@ -143,7 +143,12 @@ impl FileWatcher {
             // Regenerate tree if any files were processed
             if processed > 0 && !self.dry_run {
                 let backup_dir = self.processor.backup_mgr.backup_dir.clone();
-                let gen = TreeGenerator::new(root, &backup_dir, &self.output_path);
+                let gen = TreeGenerator::new(
+                    root,
+                    &backup_dir,
+                    &self.output_path,
+                    &self.processor.config.exclude.patterns,
+                );
                 if let Err(e) = gen.generate(&self.output_path) {
                     eprintln!("{} regenerating tree: {}", "warn".yellow(), e);
                 }

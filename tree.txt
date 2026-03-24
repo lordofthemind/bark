@@ -16,6 +16,5 @@
 │   ├── tree.rs
 │   ├── walker.rs
 │   └── watcher.rs
-├── tarpaulin-report.html
 └── tests/
     └── integration.rs

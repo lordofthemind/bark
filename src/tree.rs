@@ -1,25 +1,53 @@
 // File: src/tree.rs
-use anyhow::Result;
+use crate::walker::is_path_excluded;
+use ignore::WalkBuilder;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub struct TreeGenerator {
     root: PathBuf,
     exclude_dir: PathBuf,
     output_file: PathBuf,
+    allowed_paths: HashSet<PathBuf>,
+    exclude_patterns: Vec<String>,
 }
 
 impl TreeGenerator {
-    pub fn new(root: &Path, exclude_dir: &Path, output_file: &Path) -> Self {
-        // Canonicalize so comparisons work regardless of how paths were specified
+    pub fn new(
+        root: &Path,
+        exclude_dir: &Path,
+        output_file: &Path,
+        exclude_patterns: &[String],
+    ) -> Self {
         let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        let root_canon = canon(root);
+
+        let mut allowed_paths = HashSet::new();
+        for entry in WalkBuilder::new(&root_canon)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .add_custom_ignore_filename(".barkignore")
+            .build()
+            .flatten()
+        {
+            let p = entry
+                .path()
+                .canonicalize()
+                .unwrap_or_else(|_| entry.path().to_path_buf());
+            allowed_paths.insert(p);
+        }
+
         Self {
-            root: canon(root),
+            root: root_canon,
             exclude_dir: canon(exclude_dir),
             output_file: canon(output_file),
+            allowed_paths,
+            exclude_patterns: exclude_patterns.to_vec(),
         }
     }
 
-    pub fn generate(&self, output_path: &Path) -> Result<String> {
+    pub fn generate(&self, output_path: &Path) -> anyhow::Result<String> {
         let mut out = String::from(".\n");
         self.walk(&self.root, "", &mut out)?;
         std::fs::write(output_path, &out)
@@ -27,7 +55,7 @@ impl TreeGenerator {
         Ok(out)
     }
 
-    fn walk(&self, dir: &Path, prefix: &str, out: &mut String) -> Result<()> {
+    fn walk(&self, dir: &Path, prefix: &str, out: &mut String) -> anyhow::Result<()> {
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
@@ -63,20 +91,14 @@ impl TreeGenerator {
             return false;
         }
 
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        // Skip .git and other hidden dirs that clutter the tree
-        if name.starts_with('.') {
+        // Respect .gitignore / .barkignore (and hidden files via WalkBuilder defaults)
+        if !self.allowed_paths.contains(&canon) {
             return false;
         }
 
-        // Skip common build/dependency dirs
-        matches!(
-            name.as_str(),
-            s if !["node_modules", "target", "dist", "build", "vendor", "__pycache__"].contains(&s)
-        )
+        // Respect config [exclude] patterns
+        let rel = canon.strip_prefix(&self.root).unwrap_or(&canon);
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        !is_path_excluded(&rel_str, &self.exclude_patterns)
     }
 }

@@ -71,7 +71,12 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                         output_path.display()
                     );
                 } else {
-                    let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
+                    let gen = tree::TreeGenerator::new(
+                        &root,
+                        &backup_dir,
+                        &output_path,
+                        &config.exclude.patterns,
+                    );
                     match gen.generate(&output_path) {
                         Ok(_) => {
                             if cli.verbose {
@@ -146,7 +151,12 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
             }
 
             let backup_dir = root.join(config.general.backup_dir.clone());
-            let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
+            let gen = tree::TreeGenerator::new(
+                &root,
+                &backup_dir,
+                &output_path,
+                &config.exclude.patterns,
+            );
             gen.generate(&output_path)?;
             println!(
                 "{} tree written to {}",

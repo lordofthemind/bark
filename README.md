@@ -232,7 +232,7 @@ bark tree [OPTIONS] [DIR]
 └── README.md
 ```
 
-Hidden directories (`.git`, `.bark_backups`, etc.) and common build artifacts (`target/`, `node_modules/`, `dist/`, `build/`, `vendor/`, `__pycache__/`) are excluded automatically.
+The tree respects the same ignore rules as the rest of bark — `.gitignore`, `.barkignore`, and `[exclude] patterns` from `.bark.toml` all apply. Hidden directories (`.git`, etc.) and the backup directory are always excluded.
 
 > **Note:** `bark tag` generates `tree.txt` automatically after tagging. Use `--no-tree` to skip it or `bark tree` to generate it standalone.
 
@@ -567,12 +567,12 @@ skip = ["txt", "toml"]   # never tag these even if they have a built-in style
 
 ## Ignoring files
 
-bark respects multiple layers of ignore rules, evaluated in this order:
+bark respects multiple layers of ignore rules, evaluated in this order. All rules apply to both **file tagging** and **`tree.txt` generation**.
 
 1. **`.gitignore`** — any `.gitignore` in the tree, the global git ignore (`core.excludesFile`), and `.git/info/exclude` are all honoured automatically via the `ignore` crate.
 2. **`.barkignore`** — a bark-specific ignore file using the same gitignore syntax. Useful when you want bark to skip files without modifying `.gitignore`.
 3. **`[exclude] patterns`** in `.bark.toml` — glob patterns applied on top of the above.
-4. **`[extensions] skip`** — skip specific file extensions entirely.
+4. **`[extensions] skip`** — skip specific file extensions entirely (tagging only).
 
 ### Example `.barkignore`
 
