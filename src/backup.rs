@@ -26,7 +26,8 @@ impl BackupManager {
         if !self.enabled {
             return Ok(None);
         }
-        let rel = file.strip_prefix(root).unwrap_or(file);
+        let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let rel = file.strip_prefix(&root_canon).unwrap_or(file);
         let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
         // Preserve directory structure inside backup_dir
         let backup_path = self.backup_dir.join(format!(
