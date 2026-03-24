@@ -26,15 +26,18 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
     // Load config: explicit flag → search upward → defaults
     let config = match &cli.config {
         Some(path) => Config::from_file(path)?,
-        None => Config::find_and_load(&std::env::current_dir()?)?
-            .unwrap_or_default(),
+        None => Config::find_and_load(&std::env::current_dir()?)?.unwrap_or_default(),
     };
 
-    let command = cli.command.unwrap_or_else(|| Commands::Tag(cli::TagArgs::default()));
+    let command = cli
+        .command
+        .unwrap_or_else(|| Commands::Tag(cli::TagArgs::default()));
 
     match command {
         Commands::Tag(args) => {
-            let root = args.root.clone()
+            let root = args
+                .root
+                .clone()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .canonicalize()
                 .unwrap_or_else(|_| PathBuf::from("."));
@@ -72,7 +75,11 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                     match gen.generate(&output_path) {
                         Ok(_) => {
                             if cli.verbose {
-                                println!("{} tree written to {}", "bark".green().bold(), output_path.display());
+                                println!(
+                                    "{} tree written to {}",
+                                    "bark".green().bold(),
+                                    output_path.display()
+                                );
                             }
                         }
                         Err(e) => eprintln!("{} tree generation: {}", "warn".yellow(), e),
@@ -96,7 +103,9 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
         }
 
         Commands::Strip(args) => {
-            let root = args.root.clone()
+            let root = args
+                .root
+                .clone()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .canonicalize()
                 .unwrap_or_else(|_| PathBuf::from("."));
@@ -120,7 +129,9 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
         }
 
         Commands::Tree(args) => {
-            let root = args.root.clone()
+            let root = args
+                .root
+                .clone()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .canonicalize()
                 .unwrap_or_else(|_| PathBuf::from("."));
@@ -137,11 +148,17 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
             let backup_dir = root.join(config.general.backup_dir.clone());
             let gen = tree::TreeGenerator::new(&root, &backup_dir, &output_path);
             gen.generate(&output_path)?;
-            println!("{} tree written to {}", "bark".green().bold(), output_path.display());
+            println!(
+                "{} tree written to {}",
+                "bark".green().bold(),
+                output_path.display()
+            );
         }
 
         Commands::Watch(args) => {
-            let root = args.root.clone()
+            let root = args
+                .root
+                .clone()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .canonicalize()
                 .unwrap_or_else(|_| PathBuf::from("."));
@@ -161,17 +178,14 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                 None,
             ));
 
-            let fw = watcher::FileWatcher::new(
-                proc,
-                debounce,
-                output_path,
-                args.dry_run,
-            );
+            let fw = watcher::FileWatcher::new(proc, debounce, output_path, args.dry_run);
             fw.run(&root)?;
         }
 
         Commands::Restore(args) => {
-            let root = args.root.clone()
+            let root = args
+                .root
+                .clone()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let backup_dir = root.join(&args.backup_dir);
             let mgr = backup::BackupManager::new(backup_dir, false);
@@ -190,7 +204,11 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                 for entry in &entries {
                     mgr.restore(entry, args.dry_run)?;
                     if !args.dry_run {
-                        println!("{} restored: {}", "bark".green().bold(), entry.original.display());
+                        println!(
+                            "{} restored: {}",
+                            "bark".green().bold(),
+                            entry.original.display()
+                        );
                     }
                 }
                 return Ok(());
@@ -220,7 +238,11 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
             let entry = &entries[choice - 1];
             mgr.restore(entry, args.dry_run)?;
             if !args.dry_run {
-                println!("{} restored: {}", "bark".green().bold(), entry.original.display());
+                println!(
+                    "{} restored: {}",
+                    "bark".green().bold(),
+                    entry.original.display()
+                );
             }
         }
 
@@ -243,22 +265,36 @@ pub fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {
     let mode = if dry_run { " (dry run)" } else { "" };
     println!();
     println!("{}{}", "bark done".green().bold(), mode);
-    let tagged  = stats.tagged.load(Ordering::Relaxed);
+    let tagged = stats.tagged.load(Ordering::Relaxed);
     let updated = stats.updated.load(Ordering::Relaxed);
     let current = stats.current.load(Ordering::Relaxed);
     let skipped = stats.skipped.load(Ordering::Relaxed);
-    let errors  = stats.errors.load(Ordering::Relaxed);
+    let errors = stats.errors.load(Ordering::Relaxed);
     let total = tagged + updated + current + skipped + errors;
     if total == 0 {
-        println!("  {} — run {} to debug, or {} to create a config",
-            "no matching files found".yellow(), "bark tag -v".bold(), "bark init".bold());
+        println!(
+            "  {} — run {} to debug, or {} to create a config",
+            "no matching files found".yellow(),
+            "bark tag -v".bold(),
+            "bark init".bold()
+        );
         return;
     }
-    if tagged  > 0 { println!("  {} tagged",   tagged.to_string().purple()); }
-    if updated > 0 { println!("  {} updated",  updated.to_string().blue()); }
-    if current > 0 { println!("  {} current",  current.to_string().dimmed()); }
-    if skipped > 0 { println!("  {} skipped",  skipped.to_string().dimmed()); }
-    if errors  > 0 { println!("  {} errors",   errors.to_string().red()); }
+    if tagged > 0 {
+        println!("  {} tagged", tagged.to_string().purple());
+    }
+    if updated > 0 {
+        println!("  {} updated", updated.to_string().blue());
+    }
+    if current > 0 {
+        println!("  {} current", current.to_string().dimmed());
+    }
+    if skipped > 0 {
+        println!("  {} skipped", skipped.to_string().dimmed());
+    }
+    if errors > 0 {
+        println!("  {} errors", errors.to_string().red());
+    }
 }
 
 pub fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
@@ -267,11 +303,17 @@ pub fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
     println!();
     println!("{}{}", "bark strip done".yellow().bold(), mode);
     let stripped = stats.stripped.load(Ordering::Relaxed);
-    let current  = stats.current.load(Ordering::Relaxed);
-    let errors   = stats.errors.load(Ordering::Relaxed);
-    if stripped > 0 { println!("  {} headers removed", stripped.to_string().yellow()); }
-    if current  > 0 { println!("  {} files had no header", current.to_string().dimmed()); }
-    if errors   > 0 { println!("  {} errors", errors.to_string().red()); }
+    let current = stats.current.load(Ordering::Relaxed);
+    let errors = stats.errors.load(Ordering::Relaxed);
+    if stripped > 0 {
+        println!("  {} headers removed", stripped.to_string().yellow());
+    }
+    if current > 0 {
+        println!("  {} files had no header", current.to_string().dimmed());
+    }
+    if errors > 0 {
+        println!("  {} errors", errors.to_string().red());
+    }
 }
 
 pub fn default_config_toml() -> &'static str {

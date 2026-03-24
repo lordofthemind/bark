@@ -23,7 +23,12 @@ impl FileWatcher {
         output_path: PathBuf,
         dry_run: bool,
     ) -> Self {
-        Self { processor, debounce_ms, output_path, dry_run }
+        Self {
+            processor,
+            debounce_ms,
+            output_path,
+            dry_run,
+        }
     }
 
     /// Run forever (normal CLI use).
@@ -56,12 +61,11 @@ impl FileWatcher {
         watcher.watch(root, RecursiveMode::Recursive)?;
 
         // Track files bark itself just wrote so we don't re-process them
-        let recently_written: Arc<Mutex<HashSet<PathBuf>>> =
-            Arc::new(Mutex::new(HashSet::new()));
+        let recently_written: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
 
         loop {
             // Check stop flag first
-            if stop.as_ref().map_or(false, |s| s.load(Ordering::Relaxed)) {
+            if stop.as_ref().is_some_and(|s| s.load(Ordering::Relaxed)) {
                 break;
             }
 
@@ -108,10 +112,7 @@ impl FileWatcher {
             // Filter out files we just wrote
             let paths: Vec<PathBuf> = {
                 let mut rw = recently_written.lock().unwrap();
-                paths
-                    .into_iter()
-                    .filter(|p| !rw.remove(p))
-                    .collect()
+                paths.into_iter().filter(|p| !rw.remove(p)).collect()
             };
 
             if paths.is_empty() {
@@ -146,15 +147,11 @@ impl FileWatcher {
                 if let Err(e) = gen.generate(&self.output_path) {
                     eprintln!("{} regenerating tree: {}", "warn".yellow(), e);
                 }
-                println!(
-                    "{} processed {} file(s)",
-                    "bark".green().bold(),
-                    processed
-                );
+                println!("{} processed {} file(s)", "bark".green().bold(), processed);
             }
 
             // Check stop after processing a batch
-            if stop.as_ref().map_or(false, |s| s.load(Ordering::Relaxed)) {
+            if stop.as_ref().is_some_and(|s| s.load(Ordering::Relaxed)) {
                 break;
             }
         }
@@ -183,8 +180,12 @@ mod tests {
 
     #[test]
     fn is_write_event_modify_data_is_true() {
-        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(DataChange::Content))));
-        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(
+            DataChange::Content
+        ))));
+        assert!(is_write_event(&EventKind::Modify(ModifyKind::Data(
+            DataChange::Any
+        ))));
     }
 
     #[test]
@@ -216,12 +217,7 @@ mod tests {
             false,
             None,
         ));
-        let fw = FileWatcher::new(
-            proc,
-            500,
-            tmp.path().join("tree.txt"),
-            false,
-        );
+        let fw = FileWatcher::new(proc, 500, tmp.path().join("tree.txt"), false);
         assert_eq!(fw.debounce_ms, 500);
         assert!(!fw.dry_run);
     }

@@ -26,12 +26,23 @@ impl Walker {
         output_path: PathBuf,
         backup_dir: PathBuf,
     ) -> Self {
-        Self { root, config, output_path, backup_dir }
+        Self {
+            root,
+            config,
+            output_path,
+            backup_dir,
+        }
     }
 
     pub fn walk(&self) -> Vec<WalkEntry> {
-        let output_canon = self.output_path.canonicalize().unwrap_or_else(|_| self.output_path.clone());
-        let backup_canon = self.backup_dir.canonicalize().unwrap_or_else(|_| self.backup_dir.clone());
+        let output_canon = self
+            .output_path
+            .canonicalize()
+            .unwrap_or_else(|_| self.output_path.clone());
+        let backup_canon = self
+            .backup_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.backup_dir.clone());
 
         let walker = WalkBuilder::new(&self.root)
             .git_ignore(true)
@@ -80,9 +91,7 @@ impl Walker {
             };
 
             // Get relative path for header text
-            let rel = path.strip_prefix(&self.root)
-                .unwrap_or(path)
-                .to_path_buf();
+            let rel = path.strip_prefix(&self.root).unwrap_or(path).to_path_buf();
             let rel_str = rel.to_string_lossy().replace('\\', "/");
 
             // Check user exclude patterns
@@ -102,7 +111,11 @@ impl Walker {
                 continue;
             }
 
-            entries.push(WalkEntry { abs_path: abs, rel_path: rel, style });
+            entries.push(WalkEntry {
+                abs_path: abs,
+                rel_path: rel,
+                style,
+            });
         }
 
         entries
@@ -114,9 +127,9 @@ impl Walker {
             if custom.ext == ext {
                 return match custom.style.as_str() {
                     "slash" => Some(CommentStyle::Slash),
-                    "hash"  => Some(CommentStyle::Hash),
-                    "css"   => Some(CommentStyle::Css),
-                    "html"  => Some(CommentStyle::Html),
+                    "hash" => Some(CommentStyle::Hash),
+                    "css" => Some(CommentStyle::Css),
+                    "html" => Some(CommentStyle::Html),
                     _ => None,
                 };
             }
@@ -166,13 +179,19 @@ mod tests {
     #[test]
     fn is_excluded_dir_glob() {
         assert!(is_path_excluded("dist/foo.js", &["dist/**".to_string()]));
-        assert!(is_path_excluded("node_modules/lodash/index.js", &["node_modules/**".to_string()]));
+        assert!(is_path_excluded(
+            "node_modules/lodash/index.js",
+            &["node_modules/**".to_string()]
+        ));
     }
 
     #[test]
     fn is_excluded_wildcard_ext() {
         assert!(is_path_excluded("app.min.js", &["*.min.*".to_string()]));
-        assert!(is_path_excluded("vendor.bundle.js", &["*.bundle.*".to_string()]));
+        assert!(is_path_excluded(
+            "vendor.bundle.js",
+            &["*.bundle.*".to_string()]
+        ));
     }
 
     #[test]
@@ -190,9 +209,10 @@ mod tests {
     #[test]
     fn resolve_style_custom_overrides_builtin() {
         let mut config = Config::default();
-        config.extensions.custom = vec![
-            CustomExtension { ext: "rs".to_string(), style: "hash".to_string() },
-        ];
+        config.extensions.custom = vec![CustomExtension {
+            ext: "rs".to_string(),
+            style: "hash".to_string(),
+        }];
         let config = std::sync::Arc::new(config);
         let walker = Walker::new(
             std::path::PathBuf::from("."),
@@ -222,9 +242,18 @@ mod tests {
     fn resolve_style_custom_css_and_html() {
         let mut config = Config::default();
         config.extensions.custom = vec![
-            CustomExtension { ext: "mytml".to_string(), style: "html".to_string() },
-            CustomExtension { ext: "mystyle".to_string(), style: "css".to_string() },
-            CustomExtension { ext: "myunknown".to_string(), style: "invalid".to_string() },
+            CustomExtension {
+                ext: "mytml".to_string(),
+                style: "html".to_string(),
+            },
+            CustomExtension {
+                ext: "mystyle".to_string(),
+                style: "css".to_string(),
+            },
+            CustomExtension {
+                ext: "myunknown".to_string(),
+                style: "invalid".to_string(),
+            },
         ];
         let config = std::sync::Arc::new(config);
         let walker = Walker::new(
@@ -241,7 +270,13 @@ mod tests {
     #[test]
     fn is_excluded_subdir_filename_match() {
         // File in subdir: full path doesn't match *.min.* but filename does
-        assert!(is_path_excluded("subdir/app.min.js", &["*.min.*".to_string()]));
-        assert!(is_path_excluded("deep/nested/vendor.bundle.js", &["*.bundle.*".to_string()]));
+        assert!(is_path_excluded(
+            "subdir/app.min.js",
+            &["*.min.*".to_string()]
+        ));
+        assert!(is_path_excluded(
+            "deep/nested/vendor.bundle.js",
+            &["*.bundle.*".to_string()]
+        ));
     }
 }

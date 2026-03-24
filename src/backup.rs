@@ -18,7 +18,10 @@ pub struct BackupEntry {
 
 impl BackupManager {
     pub fn new(backup_dir: PathBuf, enabled: bool) -> Self {
-        Self { backup_dir, enabled }
+        Self {
+            backup_dir,
+            enabled,
+        }
     }
 
     /// Create a timestamped backup of `file` before it is modified.
@@ -78,7 +81,11 @@ impl BackupManager {
     }
 
     /// List all backup entries in the backup directory.
-    pub fn list_backups(&self, filter_file: Option<&Path>, root: &Path) -> Result<Vec<BackupEntry>> {
+    pub fn list_backups(
+        &self,
+        filter_file: Option<&Path>,
+        root: &Path,
+    ) -> Result<Vec<BackupEntry>> {
         if !self.backup_dir.exists() {
             return Ok(vec![]);
         }
@@ -125,7 +132,11 @@ impl BackupManager {
 
     pub fn restore(&self, entry: &BackupEntry, dry_run: bool) -> Result<()> {
         if dry_run {
-            println!("  would restore: {} ← {}", entry.original.display(), entry.backup_path.display());
+            println!(
+                "  would restore: {} ← {}",
+                entry.original.display(),
+                entry.backup_path.display()
+            );
             return Ok(());
         }
         if let Some(parent) = entry.original.parent() {
@@ -151,8 +162,10 @@ fn parse_backup_entry(backup_path: &Path, backup_dir: &Path) -> Option<BackupEnt
     let ts_str = ts_part.strip_prefix('.')?;
     let naive = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y%m%d_%H%M%S").ok()?;
     // The filename timestamp is written in local time, so interpret it as local, not UTC.
-    let timestamp: DateTime<Local> = chrono::Local.from_local_datetime(&naive).single()
-        .unwrap_or_else(|| Local::now());
+    let timestamp: DateTime<Local> = chrono::Local
+        .from_local_datetime(&naive)
+        .single()
+        .unwrap_or_else(Local::now);
 
     Some(BackupEntry {
         original: PathBuf::from(orig_part),
@@ -219,19 +232,30 @@ mod tests {
         std::fs::write(
             backup_dir.join("src/main.rs.20260319_120000.bak"),
             "main content",
-        ).unwrap_or_else(|_| {
+        )
+        .unwrap_or_else(|_| {
             std::fs::create_dir_all(backup_dir.join("src")).unwrap();
-            std::fs::write(backup_dir.join("src/main.rs.20260319_120000.bak"), "main content").unwrap();
+            std::fs::write(
+                backup_dir.join("src/main.rs.20260319_120000.bak"),
+                "main content",
+            )
+            .unwrap();
         });
         std::fs::create_dir_all(backup_dir.join("src")).unwrap();
-        std::fs::write(backup_dir.join("src/main.rs.20260319_120000.bak"), "main content").unwrap();
+        std::fs::write(
+            backup_dir.join("src/main.rs.20260319_120000.bak"),
+            "main content",
+        )
+        .unwrap();
         std::fs::write(backup_dir.join("lib.rs.20260319_120001.bak"), "lib content").unwrap();
 
         let mgr = BackupManager::new(backup_dir, false);
         let all = mgr.list_backups(None, &root).unwrap();
         assert_eq!(all.len(), 2, "should find both backups");
 
-        let filtered = mgr.list_backups(Some(std::path::Path::new("main.rs")), &root).unwrap();
+        let filtered = mgr
+            .list_backups(Some(std::path::Path::new("main.rs")), &root)
+            .unwrap();
         assert_eq!(filtered.len(), 1, "filter should find only main.rs backup");
     }
 

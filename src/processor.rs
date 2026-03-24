@@ -65,19 +65,25 @@ impl Processor {
         let entries = walker.walk();
         let stats = Stats::default();
 
-        entries.par_iter().for_each(|entry| {
-            match self.tag_file(entry, root) {
+        entries
+            .par_iter()
+            .for_each(|entry| match self.tag_file(entry, root) {
                 Ok(action) => match action {
-                    TagResult::Tagged  => { stats.tagged.fetch_add(1, Ordering::Relaxed); }
-                    TagResult::Updated => { stats.updated.fetch_add(1, Ordering::Relaxed); }
-                    TagResult::Current => { stats.current.fetch_add(1, Ordering::Relaxed); }
+                    TagResult::Tagged => {
+                        stats.tagged.fetch_add(1, Ordering::Relaxed);
+                    }
+                    TagResult::Updated => {
+                        stats.updated.fetch_add(1, Ordering::Relaxed);
+                    }
+                    TagResult::Current => {
+                        stats.current.fetch_add(1, Ordering::Relaxed);
+                    }
                 },
                 Err(e) => {
                     stats.errors.fetch_add(1, Ordering::Relaxed);
                     eprintln!("{} {}: {}", "error".red(), entry.rel_path.display(), e);
                 }
-            }
-        });
+            });
 
         Ok(stats)
     }
@@ -100,8 +106,9 @@ impl Processor {
         let strip_mgr = BackupManager::new(backup_dir, strip_backup);
         let stats = Stats::default();
 
-        entries.par_iter().for_each(|entry| {
-            match self.strip_file(entry, root, &strip_mgr) {
+        entries
+            .par_iter()
+            .for_each(|entry| match self.strip_file(entry, root, &strip_mgr) {
                 Ok(did_strip) => {
                     if did_strip {
                         stats.stripped.fetch_add(1, Ordering::Relaxed);
@@ -113,8 +120,7 @@ impl Processor {
                     stats.errors.fetch_add(1, Ordering::Relaxed);
                     eprintln!("{} {}: {}", "error".red(), entry.rel_path.display(), e);
                 }
-            }
-        });
+            });
 
         Ok(stats)
     }
@@ -122,7 +128,10 @@ impl Processor {
     /// Tag a single file by its absolute path (used by watcher).
     /// Respects the same config rules as the full walker (skip list, custom extensions, excludes).
     pub fn tag_file_by_path(&self, abs_path: &Path, root: &Path) -> anyhow::Result<()> {
-        let rel_path = abs_path.strip_prefix(root).unwrap_or(abs_path).to_path_buf();
+        let rel_path = abs_path
+            .strip_prefix(root)
+            .unwrap_or(abs_path)
+            .to_path_buf();
         let ext = abs_path
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
@@ -134,13 +143,17 @@ impl Processor {
         }
 
         // Check custom extensions first, then fall back to built-ins
-        let style = self.config.extensions.custom.iter()
+        let style = self
+            .config
+            .extensions
+            .custom
+            .iter()
             .find(|c| c.ext == ext.as_str())
             .and_then(|c| match c.style.as_str() {
                 "slash" => Some(CommentStyle::Slash),
-                "hash"  => Some(CommentStyle::Hash),
-                "css"   => Some(CommentStyle::Css),
-                "html"  => Some(CommentStyle::Html),
+                "hash" => Some(CommentStyle::Hash),
+                "css" => Some(CommentStyle::Css),
+                "html" => Some(CommentStyle::Html),
                 _ => None,
             })
             .or_else(|| CommentStyle::from_ext(&ext));
@@ -156,7 +169,11 @@ impl Processor {
             return Ok(());
         }
 
-        let entry = WalkEntry { abs_path: abs_path.to_path_buf(), rel_path, style };
+        let entry = WalkEntry {
+            abs_path: abs_path.to_path_buf(),
+            rel_path,
+            style,
+        };
         self.tag_file(&entry, root)?;
         Ok(())
     }
@@ -165,11 +182,13 @@ impl Processor {
         let content = std::fs::read_to_string(&entry.abs_path)?;
 
         // Pick template: CLI override → per-extension config override → config default
-        let ext = entry.abs_path
+        let ext = entry
+            .abs_path
             .extension()
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_default();
-        let template = self.template_override
+        let template = self
+            .template_override
             .as_deref()
             .or_else(|| self.config.template.overrides.get(&ext).map(|s| s.as_str()))
             .unwrap_or(&self.config.template.default)

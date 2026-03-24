@@ -4,10 +4,10 @@ use regex::Regex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommentStyle {
-    Slash,  // // comment
-    Hash,   // # comment
-    Css,    // /* comment */
-    Html,   // <!-- comment -->
+    Slash, // // comment
+    Hash,  // # comment
+    Css,   // /* comment */
+    Html,  // <!-- comment -->
 }
 
 impl CommentStyle {
@@ -55,9 +55,9 @@ impl CommentStyle {
     pub fn wrap(&self, body: &str) -> String {
         match self {
             Self::Slash => format!("// {}", body),
-            Self::Hash  => format!("# {}", body),
-            Self::Css   => format!("/* {} */", body),
-            Self::Html  => format!("<!-- {} -->", body),
+            Self::Hash => format!("# {}", body),
+            Self::Css => format!("/* {} */", body),
+            Self::Html => format!("<!-- {} -->", body),
         }
     }
 
@@ -66,9 +66,9 @@ impl CommentStyle {
     pub fn detect_regex(&self) -> Regex {
         let pattern = match self {
             Self::Slash => r"^[[:space:]]*//[[:space:]]+\S",
-            Self::Hash  => r"^[[:space:]]*#[[:space:]]+\S",
-            Self::Css   => r"^[[:space:]]*/\*[[:space:]]+\S",
-            Self::Html  => r"^[[:space:]]*<!--[[:space:]]+\S",
+            Self::Hash => r"^[[:space:]]*#[[:space:]]+\S",
+            Self::Css => r"^[[:space:]]*/\*[[:space:]]+\S",
+            Self::Html => r"^[[:space:]]*<!--[[:space:]]+\S",
         };
         Regex::new(pattern).expect("valid regex")
     }
@@ -117,7 +117,11 @@ fn candidate_line(content: &str) -> Option<&str> {
 /// Apply the header tag — return new file content with header added/updated.
 pub fn apply_tag(content: &str, desired_header: &str, style: CommentStyle) -> String {
     let re = style.detect_regex();
-    let line_ending = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let trailing_nl = content.ends_with('\n') || content.ends_with("\r\n");
 
     let lines: Vec<&str> = content.lines().collect();
@@ -133,9 +137,17 @@ pub fn apply_tag(content: &str, desired_header: &str, style: CommentStyle) -> St
     if has_shebang {
         out.push(lines[0].to_string());
         // Check whether line 1 is an existing header
-        let header_idx = if lines.len() > 1 && re.is_match(lines[1]) { 1 } else { usize::MAX };
+        let header_idx = if lines.len() > 1 && re.is_match(lines[1]) {
+            1
+        } else {
+            usize::MAX
+        };
         let mut rest_start = if header_idx == 1 {
-            if lines.get(2).map_or(false, |l| l.trim().is_empty()) { 3 } else { 2 }
+            if lines.get(2).is_some_and(|l| l.trim().is_empty()) {
+                3
+            } else {
+                2
+            }
         } else {
             1
         };
@@ -148,7 +160,11 @@ pub fn apply_tag(content: &str, desired_header: &str, style: CommentStyle) -> St
         out.extend(lines[rest_start..].iter().map(|l| l.to_string()));
     } else {
         let mut rest_start = if re.is_match(lines[0]) {
-            if lines.get(1).map_or(false, |l| l.trim().is_empty()) { 2 } else { 1 }
+            if lines.get(1).is_some_and(|l| l.trim().is_empty()) {
+                2
+            } else {
+                1
+            }
         } else {
             0
         };
@@ -171,11 +187,15 @@ pub fn apply_tag(content: &str, desired_header: &str, style: CommentStyle) -> St
 /// Strip any bark-managed header from the file content.
 pub fn strip(content: &str, style: CommentStyle) -> Option<String> {
     let re = style.detect_regex();
-    let line_ending = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let trailing_nl = content.ends_with('\n') || content.ends_with("\r\n");
 
     let lines: Vec<&str> = content.lines().collect();
-    let has_shebang = lines.first().map_or(false, |l| l.starts_with("#!"));
+    let has_shebang = lines.first().is_some_and(|l| l.starts_with("#!"));
 
     // Determine which line to check for header
     let check_idx = if has_shebang { 1 } else { 0 };
@@ -219,7 +239,12 @@ mod tests {
             year: "2026".to_string(),
             author: "tester".to_string(),
             project: "myproject".to_string(),
-            filename: file.split('/').last().unwrap_or(file).trim_end_matches(".rs").to_string(),
+            filename: file
+                .split('/')
+                .last()
+                .unwrap_or(file)
+                .trim_end_matches(".rs")
+                .to_string(),
             ext: "rs".to_string(),
             custom: HashMap::new(),
         }
@@ -229,35 +254,55 @@ mod tests {
 
     #[test]
     fn slash_extensions() {
-        for ext in &["go", "rs", "js", "ts", "tsx", "jsx", "java", "kt", "cpp",
-                     "c", "h", "cs", "swift", "dart", "zig", "sol", "proto"] {
-            assert_eq!(CommentStyle::from_ext(ext), Some(CommentStyle::Slash),
-                "expected Slash for .{}", ext);
+        for ext in &[
+            "go", "rs", "js", "ts", "tsx", "jsx", "java", "kt", "cpp", "c", "h", "cs", "swift",
+            "dart", "zig", "sol", "proto",
+        ] {
+            assert_eq!(
+                CommentStyle::from_ext(ext),
+                Some(CommentStyle::Slash),
+                "expected Slash for .{}",
+                ext
+            );
         }
     }
 
     #[test]
     fn hash_extensions() {
-        for ext in &["py", "rb", "cr", "nim", "ex", "exs", "jl", "tf", "nix",
-                     "graphql", "toml", "yaml", "yml"] {
-            assert_eq!(CommentStyle::from_ext(ext), Some(CommentStyle::Hash),
-                "expected Hash for .{}", ext);
+        for ext in &[
+            "py", "rb", "cr", "nim", "ex", "exs", "jl", "tf", "nix", "graphql", "toml", "yaml",
+            "yml",
+        ] {
+            assert_eq!(
+                CommentStyle::from_ext(ext),
+                Some(CommentStyle::Hash),
+                "expected Hash for .{}",
+                ext
+            );
         }
     }
 
     #[test]
     fn css_extensions() {
         for ext in &["css", "scss", "sass", "less", "styl"] {
-            assert_eq!(CommentStyle::from_ext(ext), Some(CommentStyle::Css),
-                "expected Css for .{}", ext);
+            assert_eq!(
+                CommentStyle::from_ext(ext),
+                Some(CommentStyle::Css),
+                "expected Css for .{}",
+                ext
+            );
         }
     }
 
     #[test]
     fn html_extensions() {
         for ext in &["html", "htm", "xml", "svg", "vue", "svelte", "astro"] {
-            assert_eq!(CommentStyle::from_ext(ext), Some(CommentStyle::Html),
-                "expected Html for .{}", ext);
+            assert_eq!(
+                CommentStyle::from_ext(ext),
+                Some(CommentStyle::Html),
+                "expected Html for .{}",
+                ext
+            );
         }
     }
 
@@ -265,7 +310,7 @@ mod tests {
     fn unknown_extension_returns_none() {
         assert_eq!(CommentStyle::from_ext("xyz"), None);
         assert_eq!(CommentStyle::from_ext(""), None);
-        assert_eq!(CommentStyle::from_ext("sh"), None);  // removed intentionally
+        assert_eq!(CommentStyle::from_ext("sh"), None); // removed intentionally
         assert_eq!(CommentStyle::from_ext("bash"), None);
     }
 
@@ -283,12 +328,18 @@ mod tests {
 
     #[test]
     fn wrap_css() {
-        assert_eq!(CommentStyle::Css.wrap("File: foo.css"), "/* File: foo.css */");
+        assert_eq!(
+            CommentStyle::Css.wrap("File: foo.css"),
+            "/* File: foo.css */"
+        );
     }
 
     #[test]
     fn wrap_html() {
-        assert_eq!(CommentStyle::Html.wrap("File: foo.html"), "<!-- File: foo.html -->");
+        assert_eq!(
+            CommentStyle::Html.wrap("File: foo.html"),
+            "<!-- File: foo.html -->"
+        );
     }
 
     // ── detect_regex ────────────────────────────────────────────────────────
@@ -345,28 +396,40 @@ mod tests {
     fn analyze_add_new() {
         let content = "package main\n\nfunc main() {}\n";
         let desired = "// File: main.go";
-        assert!(matches!(analyze(content, desired, CommentStyle::Slash), HeaderAction::AddNew));
+        assert!(matches!(
+            analyze(content, desired, CommentStyle::Slash),
+            HeaderAction::AddNew
+        ));
     }
 
     #[test]
     fn analyze_already_current() {
         let content = "// File: main.go\n\npackage main\n";
         let desired = "// File: main.go";
-        assert!(matches!(analyze(content, desired, CommentStyle::Slash), HeaderAction::AlreadyCurrent));
+        assert!(matches!(
+            analyze(content, desired, CommentStyle::Slash),
+            HeaderAction::AlreadyCurrent
+        ));
     }
 
     #[test]
     fn analyze_update_existing() {
         let content = "// File: old/path.go\n\npackage main\n";
         let desired = "// File: new/path.go";
-        assert!(matches!(analyze(content, desired, CommentStyle::Slash), HeaderAction::UpdateExisting));
+        assert!(matches!(
+            analyze(content, desired, CommentStyle::Slash),
+            HeaderAction::UpdateExisting
+        ));
     }
 
     #[test]
     fn analyze_skips_shebang() {
         let content = "#!/usr/bin/env python3\n# File: script.py\n\nprint('hi')\n";
         let desired = "# File: script.py";
-        assert!(matches!(analyze(content, desired, CommentStyle::Hash), HeaderAction::AlreadyCurrent));
+        assert!(matches!(
+            analyze(content, desired, CommentStyle::Hash),
+            HeaderAction::AlreadyCurrent
+        ));
     }
 
     // ── apply_tag ───────────────────────────────────────────────────────────
@@ -383,7 +446,7 @@ mod tests {
         let result = apply_tag(content, "// File: main.go", CommentStyle::Slash);
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "// File: main.go");
-        assert_eq!(lines[1], "");              // blank line
+        assert_eq!(lines[1], ""); // blank line
         assert_eq!(lines[2], "package main");
     }
 
@@ -402,7 +465,7 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "#!/usr/bin/env python3");
         assert_eq!(lines[1], "# File: script.py");
-        assert_eq!(lines[2], "");             // blank line
+        assert_eq!(lines[2], ""); // blank line
         assert_eq!(lines[3], "print('hi')");
     }
 
@@ -501,7 +564,7 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines[0], "#!/usr/bin/env python3");
         assert_eq!(lines[1], "# File: script.py");
-        assert_eq!(lines[2], "");             // exactly one blank
+        assert_eq!(lines[2], ""); // exactly one blank
         assert_eq!(lines[3], "print('hi')"); // multiple blanks collapsed
     }
 }

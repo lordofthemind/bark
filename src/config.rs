@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -16,19 +17,7 @@ pub struct Config {
     #[serde(default)]
     pub extensions: ExtensionsConfig,
     #[serde(default)]
-    pub watch: WatchConfig,  // used for .bark.toml deserialization
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            template: TemplateConfig::default(),
-            exclude: ExcludeConfig::default(),
-            extensions: ExtensionsConfig::default(),
-            watch: WatchConfig::default(),
-        }
-    }
+    pub watch: WatchConfig, // used for .bark.toml deserialization
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -43,10 +32,18 @@ pub struct GeneralConfig {
     pub backup: bool,
 }
 
-fn default_output() -> String { "tree.txt".into() }
-fn default_backup_dir() -> String { ".bark_backups".into() }
-fn default_max_file_size() -> u64 { 1_048_576 }
-fn default_true() -> bool { true }
+fn default_output() -> String {
+    "tree.txt".into()
+}
+fn default_backup_dir() -> String {
+    ".bark_backups".into()
+}
+fn default_max_file_size() -> u64 {
+    1_048_576
+}
+fn default_true() -> bool {
+    true
+}
 
 impl Default for GeneralConfig {
     fn default() -> Self {
@@ -71,8 +68,12 @@ pub struct TemplateConfig {
     pub overrides: HashMap<String, String>,
 }
 
-fn default_template() -> String { "File: {{file}}".into() }
-fn default_date_format() -> String { "%Y-%m-%d".into() }
+fn default_template() -> String {
+    "File: {{file}}".into()
+}
+fn default_date_format() -> String {
+    "%Y-%m-%d".into()
+}
 
 impl Default for TemplateConfig {
     fn default() -> Self {
@@ -105,7 +106,9 @@ fn default_exclude_patterns() -> Vec<String> {
 
 impl Default for ExcludeConfig {
     fn default() -> Self {
-        Self { patterns: default_exclude_patterns() }
+        Self {
+            patterns: default_exclude_patterns(),
+        }
     }
 }
 
@@ -132,11 +135,16 @@ pub struct WatchConfig {
     pub ignore: Vec<String>,
 }
 
-fn default_debounce_ms() -> u64 { 500 }
+fn default_debounce_ms() -> u64 {
+    500
+}
 
 impl Default for WatchConfig {
     fn default() -> Self {
-        Self { debounce_ms: 500, ignore: Vec::new() }
+        Self {
+            debounce_ms: 500,
+            ignore: Vec::new(),
+        }
     }
 }
 
@@ -165,8 +173,7 @@ impl Config {
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("reading config: {}", path.display()))?;
-        toml::from_str(&content)
-            .with_context(|| format!("parsing config: {}", path.display()))
+        toml::from_str(&content).with_context(|| format!("parsing config: {}", path.display()))
     }
 }
 
@@ -230,8 +237,14 @@ team = "backend"
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), toml).unwrap();
         let c = Config::from_file(tmp.path()).unwrap();
-        assert_eq!(c.template.variables.get("author").map(|s| s.as_str()), Some("Bob"));
-        assert_eq!(c.template.variables.get("team").map(|s| s.as_str()), Some("backend"));
+        assert_eq!(
+            c.template.variables.get("author").map(|s| s.as_str()),
+            Some("Bob")
+        );
+        assert_eq!(
+            c.template.variables.get("team").map(|s| s.as_str()),
+            Some("backend")
+        );
     }
 
     #[test]

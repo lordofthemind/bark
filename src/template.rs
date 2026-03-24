@@ -74,9 +74,7 @@ mod tests {
             project: "myproject".to_string(),
             filename: "main".to_string(),
             ext: "rs".to_string(),
-            custom: std::collections::HashMap::from([
-                ("team".to_string(), "platform".to_string()),
-            ]),
+            custom: std::collections::HashMap::from([("team".to_string(), "platform".to_string())]),
         }
     }
 

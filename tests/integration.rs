@@ -82,7 +82,11 @@ fn init_refuses_to_overwrite_without_force() {
     init_git(&dir);
 
     // First init
-    bark().arg("init").current_dir(dir.path()).assert().success();
+    bark()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
 
     // Second init without --force should fail
     bark()
@@ -97,7 +101,11 @@ fn init_force_overwrites() {
     let dir = TempDir::new().unwrap();
     init_git(&dir);
 
-    bark().arg("init").current_dir(dir.path()).assert().success();
+    bark()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success();
     bark()
         .args(["init", "--force"])
         .current_dir(dir.path())
@@ -111,7 +119,11 @@ fn init_force_overwrites() {
 fn tag_adds_header_to_go_file() {
     let dir = TempDir::new().unwrap();
     init_git(&dir);
-    fs::write(dir.path().join("main.go"), "package main\n\nfunc main() {}\n").unwrap();
+    fs::write(
+        dir.path().join("main.go"),
+        "package main\n\nfunc main() {}\n",
+    )
+    .unwrap();
 
     bark()
         .args(["tag", "--force", "--no-tree"])
@@ -120,7 +132,10 @@ fn tag_adds_header_to_go_file() {
         .success();
 
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert!(content.starts_with("// File: main.go"), "header should be on line 0");
+    assert!(
+        content.starts_with("// File: main.go"),
+        "header should be on line 0"
+    );
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.get(1), Some(&""), "blank line should follow header");
     assert_eq!(lines.get(2), Some(&"package main"));
@@ -167,7 +182,10 @@ fn tag_is_idempotent() {
         .stdout(predicate::str::contains("current"));
 
     let after_second = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert_eq!(after_first, after_second, "second run should not modify files");
+    assert_eq!(
+        after_first, after_second,
+        "second run should not modify files"
+    );
 }
 
 #[test]
@@ -195,7 +213,13 @@ fn tag_custom_template() {
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
 
     bark()
-        .args(["tag", "--force", "--no-tree", "--template", "File: {{file}} | Bark"])
+        .args([
+            "tag",
+            "--force",
+            "--no-tree",
+            "--template",
+            "File: {{file}} | Bark",
+        ])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -218,7 +242,10 @@ fn tag_creates_backup_by_default() {
         .success();
 
     let backup_dir = dir.path().join(".bark_backups");
-    assert!(backup_dir.exists(), ".bark_backups directory should be created");
+    assert!(
+        backup_dir.exists(),
+        ".bark_backups directory should be created"
+    );
 
     // At least one .bak file should exist somewhere inside
     let has_bak = walkdir_has_extension(&backup_dir, "bak");
@@ -238,7 +265,10 @@ fn tag_skips_unknown_extensions() {
         .success();
 
     let content = fs::read_to_string(dir.path().join("file.xyz")).unwrap();
-    assert_eq!(content, "some content\n", "unknown extension should be untouched");
+    assert_eq!(
+        content, "some content\n",
+        "unknown extension should be untouched"
+    );
 }
 
 // ── bark strip ───────────────────────────────────────────────────────────────
@@ -251,7 +281,8 @@ fn strip_removes_header() {
     fs::write(
         dir.path().join("main.go"),
         "// File: main.go\n\npackage main\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     bark()
         .arg("strip")
@@ -304,10 +335,19 @@ fn tag_multiple_file_types() {
     let html = fs::read_to_string(dir.path().join("index.html")).unwrap();
     let toml_file = fs::read_to_string(dir.path().join("config.toml")).unwrap();
 
-    assert!(ts.starts_with("// File: app.ts"),    "ts uses slash style");
-    assert!(css.starts_with("/* File: style.css */"), "css uses css style");
-    assert!(html.starts_with("<!-- File: index.html -->"), "html uses html style");
-    assert!(toml_file.starts_with("# File: config.toml"), "toml uses hash style");
+    assert!(ts.starts_with("// File: app.ts"), "ts uses slash style");
+    assert!(
+        css.starts_with("/* File: style.css */"),
+        "css uses css style"
+    );
+    assert!(
+        html.starts_with("<!-- File: index.html -->"),
+        "html uses html style"
+    );
+    assert!(
+        toml_file.starts_with("# File: config.toml"),
+        "toml uses hash style"
+    );
 }
 
 // ── Config file ───────────────────────────────────────────────────────────────
@@ -320,7 +360,8 @@ fn config_file_changes_template() {
     fs::write(
         dir.path().join(".bark.toml"),
         "[template]\ndefault = \"File: {{file}} | CUSTOM\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     bark()
         .args(["tag", "--force", "--no-tree"])
@@ -329,7 +370,10 @@ fn config_file_changes_template() {
         .success();
 
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert!(content.contains("| CUSTOM"), "config template should be used");
+    assert!(
+        content.contains("| CUSTOM"),
+        "config template should be used"
+    );
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────
@@ -375,7 +419,11 @@ fn lib_processor_tags_go_file() {
 
     let dir = TempDir::new().unwrap();
     init_git(&dir);
-    fs::write(dir.path().join("main.go"), "package main\n\nfunc main() {}\n").unwrap();
+    fs::write(
+        dir.path().join("main.go"),
+        "package main\n\nfunc main() {}\n",
+    )
+    .unwrap();
 
     let config = Arc::new(Config::default());
     let backup_dir = dir.path().join(".bark_backups");
@@ -384,9 +432,15 @@ fn lib_processor_tags_go_file() {
     let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
     let stats = proc.run_tag(dir.path(), &output_path).unwrap();
 
-    assert!(stats.tagged.load(Ordering::Relaxed) > 0, "should tag at least one file");
+    assert!(
+        stats.tagged.load(Ordering::Relaxed) > 0,
+        "should tag at least one file"
+    );
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert!(content.starts_with("// File: main.go"), "header should be added");
+    assert!(
+        content.starts_with("// File: main.go"),
+        "header should be added"
+    );
 }
 
 #[test]
@@ -404,14 +458,37 @@ fn lib_processor_tag_idempotent() {
     let backup_dir = dir.path().join(".bark_backups");
     let output_path = dir.path().join("tree.txt");
 
-    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
     proc.run_tag(dir.path(), &output_path).unwrap();
 
     // Second run: file should be current, not tagged again
-    let proc2 = Processor::new(Arc::clone(&config), dir.path(), backup_dir, false, false, false, None);
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        false,
+        false,
+        None,
+    );
     let stats2 = proc2.run_tag(dir.path(), &output_path).unwrap();
-    assert_eq!(stats2.tagged.load(Ordering::Relaxed), 0, "second run should not re-tag");
-    assert!(stats2.current.load(Ordering::Relaxed) > 0, "second run should report file as current");
+    assert_eq!(
+        stats2.tagged.load(Ordering::Relaxed),
+        0,
+        "second run should not re-tag"
+    );
+    assert!(
+        stats2.current.load(Ordering::Relaxed) > 0,
+        "second run should report file as current"
+    );
 }
 
 #[test]
@@ -426,7 +503,8 @@ fn lib_processor_strip_removes_header() {
     fs::write(
         dir.path().join("main.go"),
         "// File: main.go\n\npackage main\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let config = Arc::new(Config::default());
     let backup_dir = dir.path().join(".bark_backups");
@@ -435,7 +513,10 @@ fn lib_processor_strip_removes_header() {
     let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
     let stats = proc.run_strip(dir.path(), &output_path, false).unwrap();
 
-    assert!(stats.stripped.load(Ordering::Relaxed) > 0, "should strip header");
+    assert!(
+        stats.stripped.load(Ordering::Relaxed) > 0,
+        "should strip header"
+    );
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
     assert!(!content.contains("// File:"), "header should be removed");
     assert!(content.contains("package main"), "code should remain");
@@ -489,7 +570,10 @@ fn lib_processor_custom_template() {
     proc.run_tag(dir.path(), &output_path).unwrap();
 
     let content = fs::read_to_string(dir.path().join("app.ts")).unwrap();
-    assert!(content.starts_with("// Managed: app.ts"), "custom template should be used");
+    assert!(
+        content.starts_with("// Managed: app.ts"),
+        "custom template should be used"
+    );
 }
 
 #[test]
@@ -506,7 +590,15 @@ fn lib_processor_tag_with_backup() {
     let backup_dir = dir.path().join(".bark_backups");
     let output_path = dir.path().join("tree.txt");
 
-    let proc = Processor::new(config, dir.path(), backup_dir.clone(), false, false, true, None);
+    let proc = Processor::new(
+        config,
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        true,
+        None,
+    );
     proc.run_tag(dir.path(), &output_path).unwrap();
 
     assert!(backup_dir.exists(), "backup dir should be created");
@@ -554,7 +646,10 @@ fn lib_tree_generator_creates_tree_file() {
     assert!(tree_str.contains("src"), "tree should include src dir");
     assert!(output_path.exists(), "tree.txt should be written to disk");
     let on_disk = fs::read_to_string(&output_path).unwrap();
-    assert_eq!(tree_str, on_disk, "returned string should match file content");
+    assert_eq!(
+        tree_str, on_disk,
+        "returned string should match file content"
+    );
 }
 
 #[test]
@@ -565,13 +660,20 @@ fn lib_tree_generator_excludes_backup_dir() {
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
     let backup_dir = dir.path().join(".bark_backups");
     fs::create_dir_all(&backup_dir).unwrap();
-    fs::write(backup_dir.join("main.go.20260101_000000.bak"), "old content").unwrap();
+    fs::write(
+        backup_dir.join("main.go.20260101_000000.bak"),
+        "old content",
+    )
+    .unwrap();
 
     let output_path = dir.path().join("tree.txt");
     let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path);
     let tree_str = gen.generate(&output_path).unwrap();
 
-    assert!(!tree_str.contains(".bark_backups"), "backup dir should be excluded from tree");
+    assert!(
+        !tree_str.contains(".bark_backups"),
+        "backup dir should be excluded from tree"
+    );
 }
 
 #[test]
@@ -594,14 +696,27 @@ fn lib_walker_finds_source_files() {
     let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
     let entries = walker.walk();
 
-    let paths: Vec<String> = entries.iter()
+    let paths: Vec<String> = entries
+        .iter()
         .map(|e| e.rel_path.to_string_lossy().to_string())
         .collect();
 
-    assert!(paths.iter().any(|p| p.contains("main.go")), "should find go file");
-    assert!(paths.iter().any(|p| p.contains("notes.txt")), "should find txt file");
-    assert!(!paths.iter().any(|p| p.contains("README.md")), "should skip markdown");
-    assert!(!paths.iter().any(|p| p.contains("data.xyz")), "should skip unknown extension");
+    assert!(
+        paths.iter().any(|p| p.contains("main.go")),
+        "should find go file"
+    );
+    assert!(
+        paths.iter().any(|p| p.contains("notes.txt")),
+        "should find txt file"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("README.md")),
+        "should skip markdown"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("data.xyz")),
+        "should skip unknown extension"
+    );
 }
 
 #[test]
@@ -622,12 +737,19 @@ fn lib_walker_skips_excluded_patterns() {
     let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
     let entries = walker.walk();
 
-    let paths: Vec<String> = entries.iter()
+    let paths: Vec<String> = entries
+        .iter()
         .map(|e| e.rel_path.to_string_lossy().to_string())
         .collect();
 
-    assert!(paths.iter().any(|p| p.contains("app.js")), "normal js should be found");
-    assert!(!paths.iter().any(|p| p.contains("app.min.js")), "minified file should be excluded");
+    assert!(
+        paths.iter().any(|p| p.contains("app.js")),
+        "normal js should be found"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("app.min.js")),
+        "minified file should be excluded"
+    );
 }
 
 #[test]
@@ -654,7 +776,10 @@ fn lib_backup_list_and_restore() {
 
     // Verify backup content matches original
     let backup_content = fs::read_to_string(&entries[0].backup_path).unwrap();
-    assert_eq!(backup_content, "original content\n", "backup should contain original content");
+    assert_eq!(
+        backup_content, "original content\n",
+        "backup should contain original content"
+    );
 
     // Restore back to the absolute source path (bypassing the relative-path design)
     fs::write(&source, "modified content\n").unwrap();
@@ -681,7 +806,10 @@ fn lib_backup_restore_dry_run() {
     // Dry-run restore should not change file
     mgr.restore(&entries[0], true).unwrap();
     let content = fs::read_to_string(&source).unwrap();
-    assert_eq!(content, "modified\n", "dry-run restore must not modify file");
+    assert_eq!(
+        content, "modified\n",
+        "dry-run restore must not modify file"
+    );
 }
 
 #[test]
@@ -719,7 +847,10 @@ fn lib_template_context_new() {
 
     // Verify render works with this context
     let output = render("File: {{file}} ({{year}})", &ctx);
-    assert!(output.starts_with("File: src/main.rs ("), "render should substitute vars");
+    assert!(
+        output.starts_with("File: src/main.rs ("),
+        "render should substitute vars"
+    );
 }
 
 #[test]
@@ -730,12 +861,16 @@ fn lib_config_find_and_load() {
     fs::write(
         dir.path().join(".bark.toml"),
         "[template]\ndefault = \"File: {{file}} | TEST\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let config = Config::find_and_load(dir.path()).unwrap();
     assert!(config.is_some(), "should find .bark.toml");
     let config = config.unwrap();
-    assert!(config.template.default.contains("TEST"), "custom template should be loaded");
+    assert!(
+        config.template.default.contains("TEST"),
+        "custom template should be loaded"
+    );
 }
 
 #[test]
@@ -748,7 +883,8 @@ fn lib_config_find_and_load_walks_upward() {
     fs::write(
         dir.path().join(".bark.toml"),
         "[template]\ndefault = \"File: {{file}} | PARENT\"\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     // Search starting from a nested subdirectory
     let config = Config::find_and_load(&subdir).unwrap();
@@ -772,11 +908,27 @@ fn lib_processor_verbose_current() {
     let output_path = dir.path().join("tree.txt");
 
     // First run: tag the file
-    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
     proc.run_tag(dir.path(), &output_path).unwrap();
 
     // Second run with verbose: should print "current" for the already-tagged file
-    let proc2 = Processor::new(Arc::clone(&config), dir.path(), backup_dir, false, true, false, None);
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        true,
+        false,
+        None,
+    );
     let stats = proc2.run_tag(dir.path(), &output_path).unwrap();
     use std::sync::atomic::Ordering;
     assert!(stats.current.load(Ordering::Relaxed) > 0);
@@ -798,7 +950,15 @@ fn lib_processor_tag_updates_stale_header() {
     let output_path = dir.path().join("tree.txt");
 
     // First run: tag with default template
-    let proc = Processor::new(Arc::clone(&config), dir.path(), backup_dir.clone(), false, false, false, None);
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
     proc.run_tag(dir.path(), &output_path).unwrap();
 
     // Second run: tag with different template → should produce TagResult::Updated
@@ -812,10 +972,16 @@ fn lib_processor_tag_updates_stale_header() {
         Some("File: {{file}} | v2".to_string()),
     );
     let stats = proc2.run_tag(dir.path(), &output_path).unwrap();
-    assert!(stats.updated.load(Ordering::Relaxed) > 0, "re-tagging with new template should update");
+    assert!(
+        stats.updated.load(Ordering::Relaxed) > 0,
+        "re-tagging with new template should update"
+    );
 
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert!(content.contains("| v2"), "updated template should be in file");
+    assert!(
+        content.contains("| v2"),
+        "updated template should be in file"
+    );
 }
 
 #[test]
@@ -848,7 +1014,8 @@ fn write_config(dir: &TempDir) -> String {
     fs::write(
         &cfg,
         "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n",
-    ).unwrap();
+    )
+    .unwrap();
     cfg.to_str().unwrap().to_string()
 }
 
@@ -863,7 +1030,15 @@ fn rwc_tag_adds_header() {
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
 
-    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--force", root]);
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "tag",
+        "--no-tree",
+        "--force",
+        root,
+    ]);
     bark::run_with_cli(cli).unwrap();
 
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
@@ -883,7 +1058,15 @@ fn rwc_tag_with_threads() {
 
     // --threads 2 exercises the rayon thread pool configuration path (lines 44-45)
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "tag", "--no-tree", "--force", "--threads", "2", root,
+        "bark",
+        "--config",
+        &cfg,
+        "tag",
+        "--no-tree",
+        "--force",
+        "--threads",
+        "2",
+        root,
     ]);
     bark::run_with_cli(cli).unwrap();
 
@@ -928,8 +1111,15 @@ fn rwc_tag_verbose_tree() {
 
     // --verbose with tree generation covers the verbose "tree written to" print (line 73)
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "--verbose", "tag", "--force",
-        "--output", &tree, root,
+        "bark",
+        "--config",
+        &cfg,
+        "--verbose",
+        "tag",
+        "--force",
+        "--output",
+        &tree,
+        root,
     ]);
     bark::run_with_cli(cli).unwrap();
     assert!(dir.path().join("tree.txt").exists());
@@ -949,13 +1139,14 @@ fn rwc_tag_with_tree_generation() {
 
     // Run without --no-tree so tree generation path is exercised
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "tag", "--force",
-        "--output", &tree,
-        root,
+        "bark", "--config", &cfg, "tag", "--force", "--output", &tree, root,
     ]);
     bark::run_with_cli(cli).unwrap();
 
-    assert!(dir.path().join("tree.txt").exists(), "tree.txt should be generated");
+    assert!(
+        dir.path().join("tree.txt").exists(),
+        "tree.txt should be generated"
+    );
     let content = fs::read_to_string(dir.path().join("app.rs")).unwrap();
     assert!(content.starts_with("// File: app.rs"));
 }
@@ -972,7 +1163,15 @@ fn rwc_tag_dry_run() {
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
 
-    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--dry-run", root]);
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "tag",
+        "--no-tree",
+        "--dry-run",
+        root,
+    ]);
     bark::run_with_cli(cli).unwrap();
 
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
@@ -991,7 +1190,15 @@ fn rwc_tag_no_matching_files() {
     let root = dir.path().to_str().unwrap();
 
     // Should succeed even when no files match (prints "no matching files found")
-    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tag", "--no-tree", "--force", root]);
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "tag",
+        "--no-tree",
+        "--force",
+        root,
+    ]);
     bark::run_with_cli(cli).unwrap();
 }
 
@@ -1006,15 +1213,30 @@ fn rwc_tag_from_config_file() {
 
     // Write a config with a custom template
     let cfg = dir.path().join("custom.bark.toml");
-    fs::write(&cfg, "[general]\nbackup = false\n[template]\ndefault = \"X: {{file}}\"\n").unwrap();
+    fs::write(
+        &cfg,
+        "[general]\nbackup = false\n[template]\ndefault = \"X: {{file}}\"\n",
+    )
+    .unwrap();
     let cfg_str = cfg.to_str().unwrap();
     let root = dir.path().to_str().unwrap();
 
-    let cli = Cli::parse_from(&["bark", "--config", cfg_str, "tag", "--no-tree", "--force", root]);
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        cfg_str,
+        "tag",
+        "--no-tree",
+        "--force",
+        root,
+    ]);
     bark::run_with_cli(cli).unwrap();
 
     let content = fs::read_to_string(dir.path().join("app.go")).unwrap();
-    assert!(content.starts_with("// X: app.go"), "config custom template should be applied");
+    assert!(
+        content.starts_with("// X: app.go"),
+        "config custom template should be applied"
+    );
 }
 
 #[test]
@@ -1024,7 +1246,11 @@ fn rwc_strip_removes_header() {
 
     let dir = TempDir::new().unwrap();
     init_git(&dir);
-    fs::write(dir.path().join("main.go"), "// File: main.go\n\npackage main\n").unwrap();
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go\n\npackage main\n",
+    )
+    .unwrap();
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
 
@@ -1106,7 +1332,9 @@ fn rwc_tree_command_no_headers_added() {
     let root = dir.path().to_str().unwrap();
     let tree_out = dir.path().join("tree.txt").to_str().unwrap().to_string();
 
-    let cli = Cli::parse_from(&["bark", "--config", &cfg, "tree", "--output", &tree_out, root]);
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "tree", "--output", &tree_out, root,
+    ]);
     bark::run_with_cli(cli).unwrap();
 
     // Source file must be unmodified — tree command does NOT add headers
@@ -1125,7 +1353,10 @@ fn rwc_init_creates_config() {
     let cli = Cli::parse_from(&["bark", "init", dir_str]);
     bark::run_with_cli(cli).unwrap();
 
-    assert!(dir.path().join(".bark.toml").exists(), ".bark.toml should be created");
+    assert!(
+        dir.path().join(".bark.toml").exists(),
+        ".bark.toml should be created"
+    );
     let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
     assert!(content.contains("[general]"));
 }
@@ -1141,7 +1372,10 @@ fn rwc_init_fails_without_force_when_exists() {
 
     let cli = Cli::parse_from(&["bark", "init", dir_str]);
     let result = bark::run_with_cli(cli);
-    assert!(result.is_err(), "init without --force should fail if .bark.toml exists");
+    assert!(
+        result.is_err(),
+        "init without --force should fail if .bark.toml exists"
+    );
 }
 
 #[test]
@@ -1157,7 +1391,10 @@ fn rwc_init_force_overwrites() {
     bark::run_with_cli(cli).unwrap();
 
     let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
-    assert!(content.contains("[general]"), "should be overwritten with default config");
+    assert!(
+        content.contains("[general]"),
+        "should be overwritten with default config"
+    );
 }
 
 #[test]
@@ -1171,17 +1408,22 @@ fn rwc_restore_no_backups() {
     // backup_dir does not exist → list_backups returns []
 
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "restore",
-        "--root", dir.path().to_str().unwrap(),
-        "--backup-dir", backup_dir.to_str().unwrap(),
+        "bark",
+        "--config",
+        &cfg,
+        "restore",
+        "--root",
+        dir.path().to_str().unwrap(),
+        "--backup-dir",
+        backup_dir.to_str().unwrap(),
     ]);
     bark::run_with_cli(cli).unwrap(); // prints "No backups found." and returns Ok
 }
 
 #[test]
 fn rwc_restore_latest() {
-    use bark::cli::Cli;
     use bark::backup::BackupManager;
+    use bark::cli::Cli;
     use clap::Parser;
 
     let dir = TempDir::new().unwrap();
@@ -1203,9 +1445,15 @@ fn rwc_restore_latest() {
     let cfg = write_config(&dir);
     let result = (|| {
         let cli = Cli::parse_from(&[
-            "bark", "--config", &cfg, "restore", "--latest",
-            "--root", ".",
-            "--backup-dir", ".bark_backups",
+            "bark",
+            "--config",
+            &cfg,
+            "restore",
+            "--latest",
+            "--root",
+            ".",
+            "--backup-dir",
+            ".bark_backups",
         ]);
         bark::run_with_cli(cli)
     })();
@@ -1269,7 +1517,11 @@ fn lib_processor_verbose_strip() {
     let dir = TempDir::new().unwrap();
     init_git(&dir);
     // File with a header → strip with verbose=true covers the verbose print (line 223)
-    fs::write(dir.path().join("main.go"), "// File: main.go\n\npackage main\n").unwrap();
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go\n\npackage main\n",
+    )
+    .unwrap();
 
     let config = Arc::new(Config::default());
     let backup_dir = dir.path().join(".bark_backups");
@@ -1293,7 +1545,8 @@ fn lib_processor_dry_run_update() {
     fs::write(
         dir.path().join("main.go"),
         "// File: main.go\n\npackage main\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     let config = Arc::new(Config::default());
     let backup_dir = dir.path().join(".bark_backups");
@@ -1301,13 +1554,21 @@ fn lib_processor_dry_run_update() {
 
     // Use a different template so the existing header is stale
     let proc = Processor::new(
-        config, dir.path(), backup_dir, true, false, false,
+        config,
+        dir.path(),
+        backup_dir,
+        true,
+        false,
+        false,
         Some("File: {{file}} | v2".to_string()),
     );
     proc.run_tag(dir.path(), &output_path).unwrap();
     // File should be unchanged (dry-run)
     let content = fs::read_to_string(dir.path().join("main.go")).unwrap();
-    assert!(content.starts_with("// File: main.go\n"), "dry-run must not modify file");
+    assert!(
+        content.starts_with("// File: main.go\n"),
+        "dry-run must not modify file"
+    );
 }
 
 #[test]
@@ -1323,13 +1584,19 @@ fn watcher_run_fails_for_nonexistent_root() {
         config,
         tmp.path(),
         tmp.path().join(".bark_backups"),
-        false, false, false, None,
+        false,
+        false,
+        false,
+        None,
     ));
     let fw = FileWatcher::new(proc, 100, tmp.path().join("tree.txt"), false);
 
     // Watching a nonexistent path errors immediately — covers run() delegation (lines 30-31)
     let result = fw.run(std::path::Path::new("/nonexistent/bark/test/path/99999"));
-    assert!(result.is_err(), "watching nonexistent path should return an error");
+    assert!(
+        result.is_err(),
+        "watching nonexistent path should return an error"
+    );
 }
 
 #[test]
@@ -1353,7 +1620,10 @@ fn watcher_stops_on_signal() {
         Arc::clone(&config),
         &root,
         backup_dir,
-        false, false, false, None,
+        false,
+        false,
+        false,
+        None,
     ));
     let fw = Arc::new(FileWatcher::new(proc, 100, output_path, false));
 
@@ -1363,7 +1633,9 @@ fn watcher_stops_on_signal() {
     let root_clone = root.clone();
 
     let handle = std::thread::spawn(move || {
-        fw_clone.run_until_stopped(&root_clone, Some(stop_clone)).unwrap();
+        fw_clone
+            .run_until_stopped(&root_clone, Some(stop_clone))
+            .unwrap();
     });
 
     // Let the watcher start
@@ -1400,8 +1672,10 @@ fn watcher_dry_run_does_not_write() {
         Arc::clone(&config),
         &root,
         backup_dir,
-        true,  // dry_run
-        false, false, None,
+        true, // dry_run
+        false,
+        false,
+        None,
     ));
     let fw = Arc::new(FileWatcher::new(proc, 100, output_path, true));
 
@@ -1411,7 +1685,9 @@ fn watcher_dry_run_does_not_write() {
     let root_clone = root.clone();
 
     let handle = std::thread::spawn(move || {
-        fw_clone.run_until_stopped(&root_clone, Some(stop_clone)).unwrap();
+        fw_clone
+            .run_until_stopped(&root_clone, Some(stop_clone))
+            .unwrap();
     });
 
     std::thread::sleep(std::time::Duration::from_millis(150));
