@@ -1,7 +1,7 @@
 # File: Cargo.toml
 [package]
 name = "bark"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "Smart file header management and directory tree generator"
 license = "MIT"
