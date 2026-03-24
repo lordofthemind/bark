@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # bark installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/gourdian25/bark/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/master/install.sh | bash
 #
 # Installs the pre-built bark binary for your platform.
 # Respects BARK_INSTALL_DIR env var (default: ~/.local/bin).
 
 set -euo pipefail
 
-REPO="gourdian25/bark"
+REPO="lordofthemind/bark"
 BIN="bark"
 INSTALL_DIR="${BARK_INSTALL_DIR:-$HOME/.local/bin}"
 
