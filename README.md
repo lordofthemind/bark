@@ -25,6 +25,7 @@
 - [Config file](#config-file)
 - [Template system](#template-system)
 - [Supported file types](#supported-file-types)
+- [Ignoring files](#ignoring-files)
 - [Backup & restore](#backup--restore)
 - [Watch mode](#watch-mode)
 - [Build from source](#build-from-source)
@@ -36,7 +37,7 @@
 
 - **One command tags an entire project.** Run `bark` in any directory; every supported source file gets a consistent header on line 0 (or line 1 if a shebang is present).
 - **Idempotent.** Running `bark` twice never duplicates or corrupts headers.
-- **Non-destructive.** Before modifying any file, bark creates a timestamped backup. Every change can be reverted.
+- **Non-destructive.** Before modifying any file, bark creates a timestamped backup. Every change can be reverted with `bark restore`.
 - **Template-driven.** The header text is fully configurable: embed the file path, author, date, project name, or any static variable you define.
 - **Fast.** Files are processed in parallel with Rayon. Binary files, gitignored paths, and files over the size limit are skipped automatically.
 - **74+ file types** across four comment styles out of the box. Extend with your own.
@@ -58,6 +59,12 @@ Installs to `~/.local/bin` by default. Override with `BARK_INSTALL_DIR`:
 ```bash
 BARK_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/lordofthemind/bark/master/install.sh | bash
 ```
+
+> **First install?** Make sure `~/.local/bin` is in your `PATH`. Add this to your shell config (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`, etc.) if it isn't already:
+>
+> ```bash
+> export PATH="$HOME/.local/bin:$PATH"
+> ```
 
 **Supported platforms:**
 
@@ -92,23 +99,23 @@ This also installs to `~/.cargo/bin`.
 ## Quick start
 
 ```bash
-# 1. Create a config file in your project
+# 1. Create a config file in your project (optional but recommended)
 bark init
 
 # 2. Tag all source files and generate tree.txt
 bark
 
-# 3. Preview changes without writing (dry run)
+# 3. Preview changes without writing anything
 bark tag --dry-run
 
-# 4. Remove all headers
+# 4. Watch for changes and auto-tag on every save
+bark watch
+
+# 5. Remove all headers
 bark strip
 
-# 5. Generate only the directory tree, no headers
+# 6. Generate only the directory tree, no headers touched
 bark tree
-
-# 6. Watch for changes and auto-tag on save
-bark watch
 ```
 
 ---
@@ -134,8 +141,8 @@ bark tag [OPTIONS] [DIR]
 | `-o, --output <FILE>` | `tree.txt` | Output path for the directory tree |
 | `-b, --backup-dir <DIR>` | `.bark_backups` | Where to store backups |
 | `--template <TEMPLATE>` | — | Override header template for this run |
-| `--max-size <BYTES>` | `1048576` | Skip files larger than this |
-| `--threads <N>` | `0` (auto) | Rayon thread count (0 = automatic) |
+| `--max-size <BYTES>` | `1048576` | Skip files larger than this (default 1 MB) |
+| `--threads <N>` | `0` (auto) | Rayon thread count (0 = use all cores) |
 | `--no-tree` | — | Skip tree.txt generation |
 | `[DIR]` | `.` | Root directory to process |
 
@@ -151,7 +158,7 @@ bark tag --force ~/projects/myapp
 # Dry run with a one-off template
 bark tag --dry-run --no-tree --template "File: {{file}} | {{author}}"
 
-# Limit parallel threads and skip large files
+# Limit parallel threads and skip files over 512 KB
 bark tag --threads 4 --max-size 512000
 ```
 
@@ -185,11 +192,11 @@ bark strip [OPTIONS] [DIR]
 **Examples:**
 
 ```bash
-# Strip all headers (no backups)
+# Preview first, then strip
+bark strip --dry-run
 bark strip
 
-# Strip with backups, preview first
-bark strip --dry-run
+# Strip with backups so you can restore later
 bark strip --backup
 ```
 
@@ -208,7 +215,7 @@ bark tree [OPTIONS] [DIR]
 | `-o, --output <FILE>` | `tree.txt` | Output path for the tree |
 | `[DIR]` | `.` | Root directory to scan |
 
-**Example output (tree.txt):**
+**Example output (`tree.txt`):**
 
 ```
 .
@@ -227,13 +234,14 @@ bark tree [OPTIONS] [DIR]
 
 Hidden directories (`.git`, `.bark_backups`, etc.) and common build artifacts (`target/`, `node_modules/`, `dist/`, `build/`, `vendor/`, `__pycache__/`) are excluded automatically.
 
+> **Note:** `bark tag` generates `tree.txt` automatically after tagging. Use `--no-tree` to skip it or `bark tree` to generate it standalone.
+
 **Examples:**
 
 ```bash
-# Write to the default tree.txt
 bark tree
 
-# Write to a custom file
+# Write to a custom path
 bark tree --output docs/structure.txt
 
 # Generate tree for a different directory
@@ -260,23 +268,23 @@ bark watch [OPTIONS] [DIR]
 **How it works:**
 
 1. Watches the directory recursively for create and write events.
-2. Waits for the debounce window to pass (collecting burst saves).
-3. Tags all changed files in parallel.
+2. Waits for the debounce window to pass (collecting burst saves from editors).
+3. Tags all changed files in parallel — same exclude patterns, skip list, and custom extensions from your config apply.
 4. Regenerates `tree.txt`.
-5. Skips files bark itself just wrote (prevents double-processing).
+5. Tracks files bark itself just wrote to prevent self-tagging loops.
 
 Press `Ctrl-C` to stop.
 
 **Examples:**
 
 ```bash
-# Watch the current directory
+# Watch current directory
 bark watch
 
-# Watch with a shorter debounce (faster response)
+# Snappier response for fast editors
 bark watch --debounce 200
 
-# Watch without writing anything (preview mode)
+# Preview mode — see what would be tagged without writing
 bark watch --dry-run
 ```
 
@@ -312,25 +320,27 @@ Enter number to restore (or 0 to cancel):
 **Examples:**
 
 ```bash
-# Interactive restore
+# Interactive restore — pick which backup to restore
 bark restore
 
-# Auto-restore everything to its latest backup
+# Automatically restore every file to its latest backup
 bark restore --latest
 
-# Restore only one file, preview first
-bark restore --dry-run --file src/main.rs
+# Preview what --latest would restore without writing
+bark restore --dry-run --latest
+
+# Restore only one file (interactive)
 bark restore --file src/main.rs
 
 # Use a non-default backup directory
-bark restore --backup-dir /path/to/backups --latest
+bark restore --backup-dir /mnt/safe/backups --latest
 ```
 
 ---
 
 ### `init`
 
-Write a default `.bark.toml` config file.
+Write a default `.bark.toml` config file in the specified directory.
 
 ```
 bark init [OPTIONS] [DIR]
@@ -358,23 +368,29 @@ bark init ~/projects/myapp
 
 ## Config file
 
-bark searches upward from the current directory for `.bark.toml`. If none is found, it checks `~/.config/bark/config.toml`. If neither exists, built-in defaults are used.
+bark searches upward from the current directory for `.bark.toml`. If none is found, it checks `~/.config/bark/config.toml`. If neither exists, built-in defaults are used — no config file is required.
 
-Generate a fully-commented default config with `bark init`.
+Generate a fully-commented default config with:
+
+```bash
+bark init
+```
+
+### Full reference
 
 ```toml
 [general]
-output        = "tree.txt"     # tree output filename
+output        = "tree.txt"      # tree output filename
 backup_dir    = ".bark_backups" # where backups are stored
-max_file_size = 1048576        # skip files larger than this (bytes, default 1 MB)
-backup        = true           # create backups before modifying files
+max_file_size = 1048576         # skip files larger than this (bytes, default 1 MB)
+backup        = true            # create backups before modifying files
 
 [template]
 # Header text applied to every file.
 # Available variables: {{file}}, {{date}}, {{year}}, {{author}},
 #                      {{project}}, {{filename}}, {{ext}}
 default     = "File: {{file}}"
-date_format = "%Y-%m-%d"       # strftime format
+date_format = "%Y-%m-%d"        # strftime format
 
 # Per-extension overrides — keyed by extension without the dot
 [template.overrides]
@@ -388,7 +404,7 @@ project = "my-project"
 team    = "backend"
 
 [exclude]
-# Glob patterns for files and directories to skip entirely
+# Glob patterns — bark skips any file whose relative path matches
 patterns = [
     "*.min.*",
     "*.bundle.*",
@@ -403,15 +419,21 @@ patterns = [
 # Add support for file types not in the built-in set
 # style must be one of: "slash", "hash", "css", "html"
 custom = [
-    { ext = "lua",    style = "slash" },
-    { ext = "svelte", style = "html"  },
+    { ext = "lua",   style = "slash" },
+    { ext = "bicep", style = "slash" },
 ]
 # Extensions to always skip, even if they match a built-in style
-skip = []
+skip = ["txt"]
 
 [watch]
 debounce_ms = 500   # milliseconds to wait after a change before processing
-ignore      = []    # additional glob patterns to ignore in watch mode
+ignore      = []    # additional glob patterns to ignore during watch mode
+```
+
+### Config precedence
+
+```
+--config <FILE>  →  .bark.toml (upward search)  →  ~/.config/bark/config.toml  →  built-in defaults
 ```
 
 ---
@@ -427,29 +449,25 @@ The header text written into each file is controlled by a template string. Every
 | `{{file}}` | `src/main.rs` | Relative file path (forward slashes on all platforms) |
 | `{{date}}` | `2026-03-19` | Today's date (format set by `date_format` in config) |
 | `{{year}}` | `2026` | Current year |
-| `{{author}}` | `Alice` | From `[template.variables] author`, then `git config user.name` |
-| `{{project}}` | `bark` | From `[template.variables] project`, then parent directory name |
-| `{{filename}}` | `main` | File stem (name without extension) |
+| `{{author}}` | `Alice` | `[template.variables] author` → `git config user.name` → `"unknown"` |
+| `{{project}}` | `bark` | `[template.variables] project` → parent directory name |
+| `{{filename}}` | `main` | File stem — name without extension |
 | `{{ext}}` | `rs` | File extension without the dot |
 
-Custom variables defined under `[template.variables]` are also available using the same `{{name}}` syntax.
-
-Unknown variables are passed through unchanged.
+Custom variables defined under `[template.variables]` are available with the same `{{name}}` syntax. Unknown variables are passed through unchanged.
 
 ### Comment style wrapping
 
-The rendered template text is wrapped in the appropriate comment syntax for each file type:
-
-| Style | Rendered header |
+| Style | Example header |
 |---|---|
 | Slash | `// File: src/main.rs` |
-| Hash | `# File: scripts/build.py` |
+| Hash | `# File: scripts/deploy.py` |
 | CSS | `/* File: styles/main.css */` |
-| HTML | `<!-- File: index.html -->` |
+| HTML | `<!-- File: templates/index.html -->` |
 
 ### Shebang handling
 
-If a file begins with a shebang (`#!/...`), the header is placed on **line 1** (after the shebang), not line 0:
+If a file begins with `#!`, the header is placed on **line 1** (after the shebang), not line 0:
 
 ```python
 #!/usr/bin/env python3
@@ -468,9 +486,7 @@ sql = "File: {{file}} | Do not edit — generated"
 
 Override templates apply only to files with that extension. All other files use `[template] default`.
 
-### CLI override
-
-Use `--template` to apply a one-off template for a single run without touching the config:
+### One-off CLI override
 
 ```bash
 bark tag --template "File: {{file}} | {{date}}" --no-tree
@@ -534,18 +550,42 @@ bark supports 74+ extensions across four comment styles.
 ```toml
 [extensions]
 custom = [
-    { ext = "lua",    style = "slash" },
-    { ext = "svelte", style = "html"  },
-    { ext = "bicep",  style = "slash" },
+    { ext = "lua",   style = "slash" },
+    { ext = "bicep", style = "slash" },
+    { ext = "njk",   style = "html"  },
 ]
 ```
 
-### Skipping extensions
+### Skipping built-in extensions
 
 ```toml
 [extensions]
-skip = ["txt"]   # never tag these even if they have a built-in style
+skip = ["txt", "toml"]   # never tag these even if they have a built-in style
 ```
+
+---
+
+## Ignoring files
+
+bark respects multiple layers of ignore rules, evaluated in this order:
+
+1. **`.gitignore`** — any `.gitignore` in the tree, the global git ignore (`core.excludesFile`), and `.git/info/exclude` are all honoured automatically via the `ignore` crate.
+2. **`.barkignore`** — a bark-specific ignore file using the same gitignore syntax. Useful when you want bark to skip files without modifying `.gitignore`.
+3. **`[exclude] patterns`** in `.bark.toml` — glob patterns applied on top of the above.
+4. **`[extensions] skip`** — skip specific file extensions entirely.
+
+### Example `.barkignore`
+
+```gitignore
+# Don't tag generated files
+src/generated/
+*.pb.go
+
+# Don't tag vendored code
+third_party/
+```
+
+Place `.barkignore` in your project root (same directory as `.bark.toml`).
 
 ---
 
@@ -556,7 +596,9 @@ By default, bark creates a timestamped backup of every file it modifies. Backups
 ```
 .bark_backups/
 └── src/
-    └── main.rs.20260319_142022.bak
+    ├── main.rs.20260319_142022.bak
+    └── main.rs.20260318_091044.bak
+└── lib.rs.20260318_091044.bak
 ```
 
 The naming format is:
@@ -565,24 +607,22 @@ The naming format is:
 <relative/path/to/file>.<YYYYMMDD_HHMMSS>.bak
 ```
 
-Timestamps are recorded in your local timezone, so the time shown in `bark restore` always matches your system clock.
+Timestamps are recorded in your local timezone.
 
-### Disable backups
-
-To skip backup creation for a single run:
+### Disable backups for one run
 
 ```bash
 bark tag --force
 ```
 
-To disable backups permanently:
+### Disable backups permanently
 
 ```toml
 [general]
 backup = false
 ```
 
-### Restore latest backup
+### Restore the latest backup of every file
 
 ```bash
 bark restore --latest
@@ -594,11 +634,15 @@ bark restore --latest
 bark restore
 ```
 
-Lists all backups with timestamps. Enter the number of the version to restore, or `0` to cancel.
+Lists all backups with timestamps. Enter the number to restore, or `0` to cancel.
 
 ### Restore a single file
 
 ```bash
+# Preview first
+bark restore --dry-run --file src/main.rs
+
+# Then restore
 bark restore --file src/main.rs
 ```
 
@@ -620,17 +664,18 @@ bark watch
 ```
 
 Every time you save a file:
+
 1. bark waits for the debounce window (default 500 ms) to collect burst saves.
 2. Modified files are tagged — the same exclude patterns, skip list, and custom extensions from your config apply.
 3. `tree.txt` is regenerated.
 
 bark tracks files it just wrote so it never enters a self-tagging loop.
 
-Tune the debounce for faster editors or slow network filesystems:
+Tune the debounce:
 
 ```bash
-bark watch --debounce 200   # 200 ms — snappier
-bark watch --debounce 1000  # 1 s — fewer redundant writes
+bark watch --debounce 200   # 200 ms — snappier for fast editors
+bark watch --debounce 1000  # 1 s — fewer writes on slow network filesystems
 ```
 
 ---
@@ -645,12 +690,23 @@ cd bark
 cargo install --path .
 ```
 
-This installs to `~/.cargo/bin/bark`. To only build without installing, run `cargo build --release`; the binary lands at `target/release/bark`.
+Installs to `~/.cargo/bin/bark`. To only build without installing:
+
+```bash
+cargo build --release
+# binary at: target/release/bark
+```
 
 **Run tests:**
 
 ```bash
 cargo test
+```
+
+**Run the full CI check locally** (same as what CI runs — catches lint and format issues before pushing):
+
+```bash
+cargo test && cargo clippy -- -D warnings && cargo fmt --check
 ```
 
 **Measure coverage** (requires [cargo-tarpaulin](https://github.com/xd009642/tarpaulin)):
@@ -659,8 +715,6 @@ cargo test
 cargo install cargo-tarpaulin
 cargo tarpaulin --out Html --output-dir coverage/
 ```
-
-Current coverage: **92.79%** across 666 instrumented lines.
 
 ---
 
@@ -678,11 +732,16 @@ cargo fmt --check
 
 ### Publishing a release
 
-Tag a commit to trigger the release pipeline:
+Bump the version in `Cargo.toml`, commit, then tag:
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+# Edit Cargo.toml: version = "x.y.z"
+git add Cargo.toml Cargo.lock
+git commit -m "chore: bump version to vX.Y.Z"
+git push
+
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 The release workflow:
@@ -691,12 +750,10 @@ The release workflow:
 3. Packages each binary as `.tar.gz` (Unix) or `.zip` (Windows).
 4. Creates a GitHub Release with auto-generated release notes and attaches all binaries.
 
-Tags containing a `-` (e.g., `v1.2.0-beta`) are automatically marked as pre-releases.
+Tags containing `-` (e.g., `v1.0.0-beta`) are automatically marked as pre-releases.
 
 ---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-Authors: [lordofthemind](https://github.com/lordofthemind), [lordofthemind](https://github.com/lordofthemind)
