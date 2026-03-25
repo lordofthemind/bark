@@ -121,16 +121,29 @@ impl FileWatcher {
 
             let mut processed = 0usize;
             for path in &paths {
+                // Respect [watch] ignore patterns
+                if !self.processor.config.watch.ignore.is_empty() {
+                    if let Ok(rel) = path.strip_prefix(root) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        if crate::walker::is_path_excluded(
+                            &rel_str,
+                            &self.processor.config.watch.ignore,
+                        ) {
+                            continue;
+                        }
+                    }
+                }
+                let abs_path = path;
                 if self.dry_run {
-                    println!("{} {}", "would tag".purple(), path.display());
+                    println!("{} {}", "would tag".purple(), abs_path.display());
                     processed += 1;
                     continue;
                 }
                 // Mark as recently written before we write
                 {
-                    recently_written.lock().unwrap().insert(path.clone());
+                    recently_written.lock().unwrap().insert(abs_path.clone());
                 }
-                match self.processor.tag_file_by_path(path, root) {
+                match self.processor.tag_file_by_path(abs_path, root) {
                     Ok(_) => processed += 1,
                     Err(e) => {
                         eprintln!("{} {}: {}", "error".red(), path.display(), e);
@@ -161,6 +174,145 @@ impl FileWatcher {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn run_multi(&self, roots: &[(PathBuf, Arc<Processor>)]) -> anyhow::Result<()> {
+        self.run_multi_until_stopped(roots, None)
+    }
+
+    pub fn run_multi_until_stopped(
+        &self,
+        roots: &[(PathBuf, Arc<Processor>)],
+        stop: Option<Arc<AtomicBool>>,
+    ) -> anyhow::Result<()> {
+        let root_strs: Vec<String> = roots.iter().map(|(r, _)| r.display().to_string()).collect();
+        println!(
+            "{} Watching {} for changes… (Ctrl-C to stop)",
+            "bark".green().bold(),
+            root_strs.join(", ")
+        );
+
+        let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+        let mut watcher = RecommendedWatcher::new(
+            move |event: notify::Result<Event>| {
+                tx.send(event).ok();
+            },
+            notify::Config::default(),
+        )?;
+
+        for (root, _) in roots {
+            watcher.watch(root, RecursiveMode::Recursive)?;
+        }
+
+        let recently_written: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
+        let debounce = Duration::from_millis(self.debounce_ms);
+
+        loop {
+            if let Some(ref stop) = stop {
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+
+            let first = match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(ev) => ev,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => break,
+            };
+
+            let mut batch = vec![first];
+            let deadline = Instant::now() + debounce;
+            while Instant::now() < deadline {
+                match rx.recv_timeout(deadline - Instant::now()) {
+                    Ok(ev) => batch.push(ev),
+                    Err(_) => break,
+                }
+            }
+
+            // Collect unique changed paths
+            let mut changed: HashSet<PathBuf> = HashSet::new();
+            for event in batch.into_iter().flatten() {
+                if is_write_event(&event.kind) {
+                    for path in event.paths {
+                        if let Ok(c) = path.canonicalize() {
+                            changed.insert(c);
+                        } else {
+                            changed.insert(path);
+                        }
+                    }
+                }
+            }
+
+            // Remove recently written
+            {
+                let rw = recently_written.lock().unwrap();
+                changed.retain(|p| !rw.contains(p));
+            }
+
+            if changed.is_empty() {
+                continue;
+            }
+
+            // Process each changed file with the matching root's processor
+            let mut roots_to_regen: HashSet<usize> = HashSet::new();
+            for abs_path in &changed {
+                // Find which root this file belongs to
+                let root_idx = roots.iter().position(|(r, _)| abs_path.starts_with(r));
+                let (root, proc) = match root_idx {
+                    Some(i) => &roots[i],
+                    None => continue,
+                };
+
+                // Apply watch ignore patterns
+                if !proc.config.watch.ignore.is_empty() {
+                    if let Ok(rel) = abs_path.strip_prefix(root) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        if crate::walker::is_path_excluded(&rel_str, &proc.config.watch.ignore) {
+                            continue;
+                        }
+                    }
+                }
+
+                {
+                    let mut rw = recently_written.lock().unwrap();
+                    rw.insert(abs_path.clone());
+                }
+
+                if !self.dry_run {
+                    proc.tag_file_by_path(abs_path, root).ok();
+                    if let Some(i) = root_idx {
+                        roots_to_regen.insert(i);
+                    }
+                } else {
+                    println!("{} would tag: {}", "bark".dimmed(), abs_path.display());
+                }
+            }
+
+            // Clear recently written after batch
+            {
+                let mut rw = recently_written.lock().unwrap();
+                rw.clear();
+            }
+
+            // Regenerate tree for affected roots
+            if !self.dry_run {
+                for i in roots_to_regen {
+                    let (root, proc) = &roots[i];
+                    let output_path = root.join(&proc.config.general.output);
+                    if !output_path.is_dir() {
+                        let backup_dir = root.join(&proc.config.general.backup_dir);
+                        let gen = TreeGenerator::new(
+                            root,
+                            &backup_dir,
+                            &output_path,
+                            &proc.config.exclude.patterns,
+                        );
+                        gen.generate(&output_path).ok();
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }

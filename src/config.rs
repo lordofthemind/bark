@@ -1,10 +1,10 @@
 // File: src/config.rs
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[allow(dead_code)]
 #[derive(Default)]
 pub struct Config {
@@ -20,7 +20,7 @@ pub struct Config {
     pub watch: WatchConfig, // used for .bark.toml deserialization
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GeneralConfig {
     #[serde(default = "default_output")]
     pub output: String,
@@ -56,7 +56,7 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TemplateConfig {
     #[serde(default = "default_template")]
     pub default: String,
@@ -86,7 +86,7 @@ impl Default for TemplateConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExcludeConfig {
     #[serde(default = "default_exclude_patterns")]
     pub patterns: Vec<String>,
@@ -118,21 +118,31 @@ impl Default for ExcludeConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ExtensionsConfig {
     #[serde(default)]
     pub custom: Vec<CustomExtension>,
     #[serde(default)]
     pub skip: Vec<String>,
+    #[serde(default)]
+    pub filenames: Vec<CustomFilename>,
+    #[serde(default)]
+    pub filename_skip: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CustomExtension {
     pub ext: String,
     pub style: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CustomFilename {
+    pub name: String,
+    pub style: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[allow(dead_code)]
 pub struct WatchConfig {
     #[serde(default = "default_debounce_ms")]
@@ -174,6 +184,26 @@ impl Config {
             }
         }
         Ok(None)
+    }
+
+    pub fn find_config_path(start_dir: &Path) -> Option<PathBuf> {
+        let mut current = start_dir.to_path_buf();
+        loop {
+            let candidate = current.join(".bark.toml");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+        if let Some(home) = home_dir() {
+            let user_cfg = home.join(".config").join("bark").join("config.toml");
+            if user_cfg.is_file() {
+                return Some(user_cfg);
+            }
+        }
+        None
     }
 
     pub fn from_file(path: &Path) -> Result<Self> {

@@ -2,6 +2,7 @@
 pub mod backup;
 pub mod cli;
 pub mod config;
+pub mod detect;
 pub mod header;
 pub mod processor;
 pub mod template;
@@ -101,7 +102,16 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                     args.template.clone(),
                 );
 
-                let stats = proc.run_tag(&root, &output_path)?;
+                let stats = if args.staged {
+                    let staged = get_staged_files(&root)?;
+                    if staged.is_empty() {
+                        println!("{} no staged files found", "bark".green().bold());
+                        continue;
+                    }
+                    proc.run_tag_paths(&staged, &root)?
+                } else {
+                    proc.run_tag(&root, &output_path)?
+                };
                 print_tag_summary(&stats, args.dry_run);
             }
         }
@@ -174,31 +184,54 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
         }
 
         Commands::Watch(args) => {
-            let root = args
-                .root
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .canonicalize()
-                .unwrap_or_else(|_| PathBuf::from("."));
-
-            let config = load_config(&cli.config, &root)?;
-            let backup_dir = root.join(&config.general.backup_dir);
-            let output_path = root.join(&args.output);
+            let roots = resolve_roots(&args.roots);
             let debounce = args.debounce;
-            let config = Arc::new(config);
+            let dry_run = args.dry_run;
 
-            let proc = Arc::new(Processor::new(
-                Arc::clone(&config),
-                &root,
-                backup_dir,
-                args.dry_run,
-                cli.verbose,
-                true,
-                None,
-            ));
-
-            let fw = watcher::FileWatcher::new(proc, debounce, output_path, args.dry_run);
-            fw.run(&root)?;
+            if roots.len() == 1 {
+                let root = roots[0].canonicalize().unwrap_or_else(|_| roots[0].clone());
+                let config = load_config(&cli.config, &root)?;
+                let backup_dir = root.join(&config.general.backup_dir);
+                let output_path = root.join(&args.output);
+                let config = Arc::new(config);
+                let proc = Arc::new(Processor::new(
+                    Arc::clone(&config),
+                    &root,
+                    backup_dir,
+                    dry_run,
+                    cli.verbose,
+                    true,
+                    None,
+                ));
+                let fw = watcher::FileWatcher::new(proc, debounce, output_path, dry_run);
+                fw.run(&root)?;
+            } else {
+                // Multi-root watch
+                let mut pairs: Vec<(PathBuf, Arc<Processor>)> = Vec::new();
+                for root_path in &roots {
+                    let root = root_path
+                        .canonicalize()
+                        .unwrap_or_else(|_| root_path.clone());
+                    let config = load_config(&cli.config, &root)?;
+                    let backup_dir = root.join(&config.general.backup_dir);
+                    let config = Arc::new(config);
+                    let proc = Arc::new(Processor::new(
+                        Arc::clone(&config),
+                        &root,
+                        backup_dir,
+                        dry_run,
+                        cli.verbose,
+                        true,
+                        None,
+                    ));
+                    pairs.push((root, proc));
+                }
+                // Use first root's output path as placeholder (multi-root uses per-root output)
+                let output_path = pairs[0].0.join(&args.output);
+                let dummy_proc = Arc::clone(&pairs[0].1);
+                let fw = watcher::FileWatcher::new(dummy_proc, debounce, output_path, dry_run);
+                fw.run_multi(&pairs)?;
+            }
         }
 
         Commands::Restore(args) => {
@@ -271,8 +304,135 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
             if target.exists() && !args.force {
                 anyhow::bail!(".bark.toml already exists — use --force to overwrite");
             }
-            std::fs::write(&target, default_config_toml())?;
+            if args.detect {
+                let kinds = detect::detect(&dir);
+                if kinds.is_empty() {
+                    println!(
+                        "{} no project type detected, using generic config",
+                        "bark".green().bold()
+                    );
+                } else {
+                    let names: Vec<&str> = kinds
+                        .iter()
+                        .map(|k| match k {
+                            detect::ProjectKind::React => "React",
+                            detect::ProjectKind::TypeScript => "TypeScript",
+                            detect::ProjectKind::Go => "Go",
+                            detect::ProjectKind::Rust => "Rust",
+                            detect::ProjectKind::Terraform => "Terraform",
+                            detect::ProjectKind::Docker => "Docker",
+                        })
+                        .collect();
+                    println!("{} detected: {}", "bark".green().bold(), names.join(", "));
+                }
+                let content = detect::generate_config(&kinds);
+                std::fs::write(&target, content)?;
+            } else {
+                std::fs::write(&target, default_config_toml())?;
+            }
             println!("{} created {}", "bark".green().bold(), target.display());
+        }
+
+        Commands::Check(args) => {
+            let roots = resolve_roots(&args.roots);
+            let mut total_missing = 0usize;
+            let mut total_stale = 0usize;
+
+            for root_path in &roots {
+                let root = root_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| root_path.clone());
+                let config = load_config(&cli.config, &root)?;
+                let backup_dir = root.join(&config.general.backup_dir);
+                let output_path = root.join(&config.general.output);
+                let config = Arc::new(config);
+
+                let proc = Processor::new(
+                    Arc::clone(&config),
+                    &root,
+                    backup_dir,
+                    false,
+                    cli.verbose,
+                    false,
+                    None,
+                );
+
+                let stats = proc.run_check(&root, &output_path)?;
+                use std::sync::atomic::Ordering;
+                total_missing += stats.tagged.load(Ordering::Relaxed);
+                total_stale += stats.updated.load(Ordering::Relaxed);
+                let current = stats.current.load(Ordering::Relaxed);
+                if roots.len() > 1 {
+                    println!("{} {}", "→".bold(), root.display());
+                }
+                if cli.verbose || current > 0 {
+                    println!("  {} current", current.to_string().dimmed());
+                }
+            }
+
+            if total_missing + total_stale > 0 {
+                println!();
+                if total_missing > 0 {
+                    println!("  {} missing headers", total_missing.to_string().red());
+                }
+                if total_stale > 0 {
+                    println!("  {} stale headers", total_stale.to_string().yellow());
+                }
+                std::process::exit(1);
+            } else {
+                println!("{} all files have current headers", "✓".green().bold());
+            }
+        }
+
+        Commands::Clean(args) => {
+            let roots = resolve_roots(&args.roots);
+            let mut total_removed = 0usize;
+            let mut total_freed = 0u64;
+
+            for root_path in &roots {
+                let root = root_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| root_path.clone());
+                let backup_dir = root.join(&args.backup_dir);
+                let mgr = backup::BackupManager::new(backup_dir, false);
+                let (removed, freed) = mgr.clean(args.keep, args.dry_run, &root)?;
+                total_removed += removed;
+                total_freed += freed;
+            }
+
+            if args.dry_run {
+                println!(
+                    "{} would remove {} old backup(s) ({} freed)",
+                    "bark".green().bold(),
+                    total_removed,
+                    format_bytes(total_freed)
+                );
+            } else if total_removed == 0 {
+                println!("{} nothing to clean", "bark".green().bold());
+            } else {
+                println!(
+                    "{} removed {} old backup(s) ({} freed)",
+                    "bark".green().bold(),
+                    total_removed,
+                    format_bytes(total_freed)
+                );
+            }
+        }
+
+        Commands::Config(args) => {
+            let dir = args.root.unwrap_or_else(|| PathBuf::from("."));
+            let root = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+            let config = load_config(&cli.config, &root)?;
+
+            if args.source {
+                match config::Config::find_config_path(&root) {
+                    Some(path) => println!("# config source: {}", path.display()),
+                    None => println!("# using built-in defaults"),
+                }
+            }
+
+            let toml_str = toml::to_string_pretty(&config)?;
+            print!("{}", toml_str);
         }
     }
 
@@ -347,6 +507,39 @@ pub fn print_strip_summary(stats: &processor::Stats, dry_run: bool) {
     }
     if errors > 0 {
         println!("  {} errors", errors.to_string().red());
+    }
+}
+
+fn get_staged_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let root = root.to_path_buf();
+    std::thread::spawn(move || {
+        let result = std::process::Command::new("git")
+            .args(["diff", "--name-only", "--cached"])
+            .current_dir(&root)
+            .output()
+            .map(|out| {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|l| root.join(l))
+                    .filter(|p| p.is_file())
+                    .collect::<Vec<_>>()
+            });
+        let _ = tx.send(result);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5))
+        .map_err(|_| anyhow::anyhow!("git staged files timed out"))?
+        .map_err(Into::into)
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
     }
 }
 

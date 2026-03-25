@@ -1695,3 +1695,992 @@ fn watcher_dry_run_does_not_write() {
     stop.store(true, Ordering::Relaxed);
     handle.join().expect("watcher thread should exit cleanly");
 }
+
+// ── FileWatcher multi-root tests ──────────────────────────────────────────────
+
+#[test]
+fn watcher_multi_stops_on_signal() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir1 = TempDir::new().unwrap();
+    let dir2 = TempDir::new().unwrap();
+    init_git(&dir1);
+    init_git(&dir2);
+    fs::write(dir1.path().join("a.go"), "package main\n").unwrap();
+    fs::write(dir2.path().join("b.go"), "package main\n").unwrap();
+
+    let config1 = Arc::new(Config::default());
+    let config2 = Arc::new(Config::default());
+
+    let proc1 = Arc::new(Processor::new(
+        Arc::clone(&config1),
+        dir1.path(),
+        dir1.path().join(".barks"),
+        false,
+        false,
+        false,
+        None,
+    ));
+    let proc2 = Arc::new(Processor::new(
+        Arc::clone(&config2),
+        dir2.path(),
+        dir2.path().join(".barks"),
+        false,
+        false,
+        false,
+        None,
+    ));
+
+    // Create a dummy processor/output for the FileWatcher wrapper
+    let dummy_proc = Arc::clone(&proc1);
+    let fw = Arc::new(FileWatcher::new(
+        dummy_proc,
+        100,
+        dir1.path().join("bark.txt"),
+        false,
+    ));
+
+    let roots: Vec<(std::path::PathBuf, Arc<Processor>)> = vec![
+        (dir1.path().to_path_buf(), Arc::clone(&proc1)),
+        (dir2.path().to_path_buf(), Arc::clone(&proc2)),
+    ];
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+
+    let handle = std::thread::spawn(move || {
+        fw_clone
+            .run_multi_until_stopped(&roots, Some(stop_clone))
+            .unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    // Trigger file-change events in both roots
+    fs::write(dir1.path().join("a.go"), "package main // changed\n").unwrap();
+    fs::write(dir2.path().join("b.go"), "package main // changed\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(400));
+
+    stop.store(true, Ordering::Relaxed);
+    handle.join().expect("multi-watcher thread should exit cleanly");
+
+    // Both files should have received a header
+    let content1 = fs::read_to_string(dir1.path().join("a.go")).unwrap();
+    let content2 = fs::read_to_string(dir2.path().join("b.go")).unwrap();
+    assert!(content1.contains("package main"));
+    assert!(content2.contains("package main"));
+}
+
+#[test]
+fn watcher_multi_dry_run_does_not_write() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("dry.go"), original).unwrap();
+
+    let config = Arc::new(Config::default());
+    let proc = Arc::new(Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        dir.path().join(".barks"),
+        true, // dry_run
+        false,
+        false,
+        None,
+    ));
+
+    let fw = Arc::new(FileWatcher::new(
+        Arc::clone(&proc),
+        100,
+        dir.path().join("bark.txt"),
+        true, // dry_run
+    ));
+
+    let roots: Vec<(std::path::PathBuf, Arc<Processor>)> =
+        vec![(dir.path().to_path_buf(), Arc::clone(&proc))];
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+
+    let handle = std::thread::spawn(move || {
+        fw_clone
+            .run_multi_until_stopped(&roots, Some(stop_clone))
+            .unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    fs::write(dir.path().join("dry.go"), "package main // trigger\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    stop.store(true, Ordering::Relaxed);
+    handle.join().expect("watcher thread should exit cleanly");
+
+    // dry_run → file must not have a header
+    let content = fs::read_to_string(dir.path().join("dry.go")).unwrap();
+    assert!(!content.starts_with("// File:"), "dry-run must not add header");
+}
+
+#[test]
+fn watcher_single_watch_ignore_pattern() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("ignored.go"), original).unwrap();
+
+    let mut config = Config::default();
+    config.watch.ignore = vec!["ignored.go".to_string()];
+    let config = Arc::new(config);
+
+    let proc = Arc::new(Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        dir.path().join(".barks"),
+        false,
+        false,
+        false,
+        None,
+    ));
+
+    let fw = Arc::new(FileWatcher::new(
+        Arc::clone(&proc),
+        100,
+        dir.path().join("bark.txt"),
+        false,
+    ));
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+    let root = dir.path().to_path_buf();
+
+    let handle = std::thread::spawn(move || {
+        fw_clone
+            .run_until_stopped(&root, Some(stop_clone))
+            .unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    // Write the ignored file — watcher should skip it
+    fs::write(dir.path().join("ignored.go"), "package main // changed\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    stop.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+
+    // ignored.go should NOT have gotten a header (watch.ignore skips it)
+    let content = fs::read_to_string(dir.path().join("ignored.go")).unwrap();
+    assert!(!content.starts_with("// File:"), "ignored file should not be tagged");
+}
+
+#[test]
+fn watcher_multi_watch_ignore_pattern() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let original = "package main\n";
+    fs::write(dir.path().join("ignored.go"), original).unwrap();
+
+    let mut config = Config::default();
+    config.watch.ignore = vec!["ignored.go".to_string()];
+    let config = Arc::new(config);
+
+    let proc = Arc::new(Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        dir.path().join(".barks"),
+        false,
+        false,
+        false,
+        None,
+    ));
+
+    let fw = Arc::new(FileWatcher::new(
+        Arc::clone(&proc),
+        100,
+        dir.path().join("bark.txt"),
+        false,
+    ));
+
+    let roots: Vec<(std::path::PathBuf, Arc<Processor>)> =
+        vec![(dir.path().to_path_buf(), Arc::clone(&proc))];
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_clone = Arc::clone(&stop);
+    let fw_clone = Arc::clone(&fw);
+
+    let handle = std::thread::spawn(move || {
+        fw_clone
+            .run_multi_until_stopped(&roots, Some(stop_clone))
+            .unwrap();
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    fs::write(dir.path().join("ignored.go"), "package main // changed\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    stop.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+
+    let content = fs::read_to_string(dir.path().join("ignored.go")).unwrap();
+    assert!(!content.starts_with("// File:"), "ignored file should not be tagged");
+}
+
+#[test]
+fn watcher_multi_fails_for_nonexistent_root() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use bark::watcher::FileWatcher;
+    use std::sync::Arc;
+
+    let tmp = TempDir::new().unwrap();
+    let config = Arc::new(Config::default());
+    let proc = Arc::new(Processor::new(
+        config,
+        tmp.path(),
+        tmp.path().join(".barks"),
+        false,
+        false,
+        false,
+        None,
+    ));
+    let fw = FileWatcher::new(Arc::clone(&proc), 100, tmp.path().join("bark.txt"), false);
+
+    let bad_root = std::path::PathBuf::from("/nonexistent/path/99999/bark");
+    let roots = vec![(bad_root, Arc::clone(&proc))];
+
+    let result = fw.run_multi(&roots);
+    assert!(result.is_err(), "watching nonexistent path should error");
+}
+
+// ── run_check tests ───────────────────────────────────────────────────────────
+
+#[test]
+fn lib_processor_run_check_reports_missing() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_check(dir.path(), &output_path).unwrap();
+
+    // File has no header → reported as "missing" (tagged counter)
+    assert!(
+        stats.tagged.load(Ordering::Relaxed) > 0,
+        "untagged file should be reported as missing"
+    );
+}
+
+#[test]
+fn lib_processor_run_check_reports_current() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
+
+    // Tag first
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    // Then check — should be current
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        true, // verbose exercises verbose print path
+        false,
+        None,
+    );
+    let stats = proc2.run_check(dir.path(), &output_path).unwrap();
+    assert!(
+        stats.current.load(Ordering::Relaxed) > 0,
+        "tagged file should be reported as current"
+    );
+    assert_eq!(stats.tagged.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn lib_processor_run_check_reports_stale() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
+
+    // Tag with default template
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
+    proc.run_tag(dir.path(), &output_path).unwrap();
+
+    // Check with a different template — header is now stale
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        false,
+        false,
+        Some("File: {{file}} | v2".to_string()),
+    );
+    let stats = proc2.run_check(dir.path(), &output_path).unwrap();
+    assert!(
+        stats.updated.load(Ordering::Relaxed) > 0,
+        "file with stale header should be reported as stale"
+    );
+}
+
+#[test]
+fn lib_processor_run_tag_paths_tags_file() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let file = dir.path().join("util.rs");
+    fs::write(&file, "pub fn add(a: i32, b: i32) -> i32 { a + b }\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+
+    assert_eq!(stats.tagged.load(Ordering::Relaxed), 1);
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.starts_with("// File: util.rs"));
+}
+
+#[test]
+fn lib_processor_run_tag_paths_skips_unknown_ext() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.xyz999");
+    fs::write(&file, "content").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+
+    assert_eq!(stats.tagged.load(Ordering::Relaxed), 0);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "content");
+}
+
+#[test]
+fn lib_processor_run_tag_paths_skips_ext_in_skip_list() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.rs");
+    fs::write(&file, "fn main() {}\n").unwrap();
+
+    let mut config = Config::default();
+    config.exclude.patterns = vec![];
+    config.extensions.skip = vec!["rs".to_string()];
+    let config = Arc::new(config);
+    let backup_dir = dir.path().join(".barks");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+
+    assert_eq!(stats.skipped.load(Ordering::Relaxed), 1);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fn main() {}\n");
+}
+
+#[test]
+fn lib_processor_run_tag_paths_skips_filename_skip_list() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("Makefile");
+    fs::write(&file, "all: build\n").unwrap();
+
+    let mut config = Config::default();
+    config.exclude.patterns = vec![];
+    config.extensions.filename_skip = vec!["makefile".to_string()];
+    let config = Arc::new(config);
+    let backup_dir = dir.path().join(".barks");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+
+    assert_eq!(stats.skipped.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn lib_processor_run_tag_paths_idempotent() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let file = dir.path().join("app.go");
+    fs::write(&file, "package main\n").unwrap();
+
+    let config = Arc::new(Config::default());
+    let backup_dir = dir.path().join(".barks");
+
+    let proc = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir.clone(),
+        false,
+        false,
+        false,
+        None,
+    );
+    proc.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+
+    let proc2 = Processor::new(
+        Arc::clone(&config),
+        dir.path(),
+        backup_dir,
+        false,
+        false,
+        false,
+        None,
+    );
+    let stats = proc2.run_tag_paths(&[file.clone()], dir.path()).unwrap();
+    assert_eq!(stats.current.load(Ordering::Relaxed), 1);
+    assert_eq!(stats.tagged.load(Ordering::Relaxed), 0);
+}
+
+// ── bark check CLI ────────────────────────────────────────────────────────────
+
+#[test]
+fn cli_check_all_current() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    // Pre-tag the file so check passes
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go\n\npackage main\n",
+    )
+    .unwrap();
+
+    bark()
+        .args(["check"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("current"));
+}
+
+#[test]
+fn cli_check_missing_header_exits_nonzero() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+
+    bark()
+        .args(["check"])
+        .current_dir(dir.path())
+        .assert()
+        .failure();
+}
+
+#[test]
+fn rwc_check_all_current() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    // Use a separate subdir as root so config file (.toml) doesn't pollute the scan
+    let dir = TempDir::new().unwrap();
+    let cfg = write_config(&dir);
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    // Pre-tag file with exact expected header
+    fs::write(src.join("main.go"), "// File: main.go\n\npackage main\n").unwrap();
+    let root = src.to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "--verbose", "check", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+// ── bark clean CLI ────────────────────────────────────────────────────────────
+
+#[test]
+fn cli_clean_removes_old_backups() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    for ts in &["20260101_120000", "20260102_120000", "20260103_120000"] {
+        let p = backup_dir.join(format!("main.go.{}.bak", ts));
+        fs::write(&p, "content").unwrap();
+    }
+
+    bark()
+        .args(["clean", "--keep", "1"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed"));
+
+    let remaining: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(remaining.len(), 1);
+}
+
+#[test]
+fn cli_clean_dry_run_does_not_delete() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    for ts in &["20260101_120000", "20260102_120000"] {
+        let p = backup_dir.join(format!("main.go.{}.bak", ts));
+        fs::write(&p, "content").unwrap();
+    }
+
+    bark()
+        .args(["clean", "--keep", "1", "--dry-run"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("would remove"));
+
+    let remaining: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(remaining.len(), 2, "dry-run should not delete files");
+}
+
+#[test]
+fn cli_clean_nothing_to_clean() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+
+    bark()
+        .args(["clean"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("nothing to clean"));
+}
+
+#[test]
+fn rwc_clean_removes_old_backups() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    for ts in &["20260101_120000", "20260102_120000", "20260103_120000"] {
+        let p = backup_dir.join(format!("main.go.{}.bak", ts));
+        fs::write(&p, "content").unwrap();
+    }
+
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let bd = backup_dir.to_str().unwrap();
+
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "clean", "--keep", "1", "--backup-dir", bd, root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+
+    let remaining: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(remaining.len(), 1);
+}
+
+#[test]
+fn rwc_clean_nothing_to_clean() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "clean", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+// ── bark config CLI ───────────────────────────────────────────────────────────
+
+#[test]
+fn cli_config_prints_toml() {
+    let dir = TempDir::new().unwrap();
+
+    bark()
+        .args(["config"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("output"));
+}
+
+#[test]
+fn rwc_config_command() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", &cfg, "config", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_config_source_flag_with_file() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join(".bark.toml"), "[general]\nbackup = false\n").unwrap();
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "config", "--source", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_config_source_no_file() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "config", "--source", root]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+// ── bark init --detect ────────────────────────────────────────────────────────
+
+#[test]
+fn rwc_init_detect_rust_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# Rust project detected"));
+}
+
+#[test]
+fn rwc_init_detect_go_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("go.mod"), "module example").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# Go project detected"));
+}
+
+#[test]
+fn rwc_init_detect_react_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# React / TypeScript project detected"));
+}
+
+#[test]
+fn rwc_init_detect_typescript_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("tsconfig.json"), "{}").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# React / TypeScript project detected"));
+}
+
+#[test]
+fn rwc_init_detect_terraform_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.tf"), "provider {}").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# Terraform project detected"));
+}
+
+#[test]
+fn rwc_init_detect_docker_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Dockerfile"), "FROM ubuntu").unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    let content = fs::read_to_string(dir.path().join(".bark.toml")).unwrap();
+    assert!(content.contains("# Docker project detected"));
+}
+
+#[test]
+fn rwc_init_detect_unknown_project() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let dir_str = dir.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "init", "--detect", dir_str]);
+    bark::run_with_cli(cli).unwrap();
+
+    assert!(dir.path().join(".bark.toml").exists());
+}
+
+// ── bark check multi-root ────────────────────────────────────────────────────
+
+#[test]
+fn rwc_check_multi_root_all_current() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    // Two isolated source roots, each with a pre-tagged file
+    let src1 = TempDir::new().unwrap();
+    let src2 = TempDir::new().unwrap();
+    // Use the exact header the default template would generate
+    fs::write(src1.path().join("a.go"), "// File: a.go\n\npackage main\n").unwrap();
+    fs::write(src2.path().join("b.go"), "// File: b.go\n\npackage main\n").unwrap();
+
+    let root1 = src1.path().to_str().unwrap();
+    let root2 = src2.path().to_str().unwrap();
+
+    // Create a config outside the roots
+    let cfg_dir = TempDir::new().unwrap();
+    let cfg = cfg_dir.path().join("test.bark.toml");
+    fs::write(&cfg, "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n").unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+
+    let cli = Cli::parse_from(&["bark", "--config", cfg_str, "check", root1, root2]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+// ── bark check with stale headers ────────────────────────────────────────────
+
+#[test]
+fn cli_check_stale_header_exits_nonzero() {
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    // Write a file with a header that won't match the default template
+    fs::write(
+        dir.path().join("main.go"),
+        "// File: main.go | stale\n\npackage main\n",
+    )
+    .unwrap();
+
+    bark()
+        .args(["check"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("stale"));
+}
+
+// ── backup clean ─────────────────────────────────────────────────────────────
+
+#[test]
+fn lib_backup_clean_removes_old_backups() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(backup_dir.join("src")).unwrap();
+
+    for ts in &["20260101_120000", "20260102_120000", "20260103_120000"] {
+        let p = backup_dir.join(format!("src/main.rs.{}.bak", ts));
+        fs::write(&p, "content").unwrap();
+    }
+
+    let mgr = BackupManager::new(backup_dir.clone(), false);
+    let (removed, _freed) = mgr.clean(1, false, dir.path()).unwrap();
+    assert_eq!(removed, 2);
+
+    let remaining = mgr.list_backups(None, dir.path()).unwrap();
+    assert_eq!(remaining.len(), 1);
+}
+
+#[test]
+fn lib_backup_clean_dry_run_does_not_delete() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    for ts in &["20260101_120000", "20260102_120000"] {
+        let p = backup_dir.join(format!("main.go.{}.bak", ts));
+        fs::write(&p, "x").unwrap();
+    }
+
+    let mgr = BackupManager::new(backup_dir.clone(), false);
+    let (removed, _) = mgr.clean(1, true, dir.path()).unwrap();
+    assert_eq!(removed, 1);
+
+    let remaining = mgr.list_backups(None, dir.path()).unwrap();
+    assert_eq!(remaining.len(), 2);
+}
+
+#[test]
+fn lib_backup_clean_empty_is_noop() {
+    use bark::backup::BackupManager;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    let mgr = BackupManager::new(backup_dir, false);
+    let (removed, freed) = mgr.clean(3, false, dir.path()).unwrap();
+    assert_eq!(removed, 0);
+    assert_eq!(freed, 0);
+}
+
+// ── format_bytes coverage via clean output ────────────────────────────────────
+
+#[test]
+fn rwc_format_bytes_kb_range() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    // Write two 2KB backups so freed > 1024 → "X.X KB" output
+    let content = "x".repeat(2048);
+    for ts in &["20260101_120000", "20260102_120000"] {
+        fs::write(
+            backup_dir.join(format!("big.rs.{}.bak", ts)),
+            &content,
+        )
+        .unwrap();
+    }
+
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let bd = backup_dir.to_str().unwrap();
+
+    let cli = Cli::parse_from(&[
+        "bark", "--config", &cfg, "clean", "--keep", "1", "--backup-dir", bd, root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+}

@@ -188,6 +188,196 @@ impl Processor {
         Ok(())
     }
 
+    pub fn run_check(&self, root: &Path, output_path: &Path) -> anyhow::Result<Stats> {
+        let walker = Walker::new(
+            root.to_path_buf(),
+            Arc::clone(&self.config),
+            output_path.to_path_buf(),
+            self.backup_mgr.backup_dir.clone(),
+        );
+
+        let entries = walker.walk();
+        let stats = Stats::default();
+
+        entries.par_iter().for_each(|entry| {
+            let rel_str = entry.rel_path.to_string_lossy().replace('\\', "/");
+            if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.header_skip) {
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+
+            let content = match std::fs::read_to_string(&entry.abs_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    stats.errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("{} {}: {}", "error".red(), entry.rel_path.display(), e);
+                    return;
+                }
+            };
+
+            let ext = entry
+                .abs_path
+                .extension()
+                .map(|e| e.to_string_lossy().to_string())
+                .unwrap_or_else(|| {
+                    entry
+                        .abs_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_lowercase())
+                        .unwrap_or_default()
+                });
+
+            let template = self
+                .template_override
+                .as_deref()
+                .or_else(|| self.config.template.overrides.get(&ext).map(|s| s.as_str()))
+                .unwrap_or(&self.config.template.default)
+                .to_string();
+
+            let ctx = TemplateContext::new(
+                &entry.rel_path,
+                &self.config.template.date_format,
+                self.author.clone(),
+                self.project.clone(),
+                self.config.template.variables.clone(),
+            );
+
+            let desired = header::build_header(entry.style, &template, &ctx);
+            match header::analyze(&content, &desired, entry.style) {
+                header::HeaderAction::AlreadyCurrent => {
+                    if self.verbose {
+                        println!("{} {}", "ok".green(), entry.rel_path.display());
+                    }
+                    stats.current.fetch_add(1, Ordering::Relaxed);
+                }
+                header::HeaderAction::UpdateExisting => {
+                    println!("{} {}", "stale".yellow(), entry.rel_path.display());
+                    stats.updated.fetch_add(1, Ordering::Relaxed);
+                }
+                header::HeaderAction::AddNew => {
+                    println!("{} {}", "missing".red(), entry.rel_path.display());
+                    stats.tagged.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        });
+
+        Ok(stats)
+    }
+
+    pub fn run_tag_paths(&self, abs_paths: &[PathBuf], root: &Path) -> anyhow::Result<Stats> {
+        let stats = Stats::default();
+
+        abs_paths.par_iter().for_each(|abs_path| {
+            let rel_path = abs_path
+                .strip_prefix(root)
+                .unwrap_or(abs_path)
+                .to_path_buf();
+
+            let ext_or_name = abs_path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| {
+                    abs_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_lowercase())
+                        .unwrap_or_default()
+                });
+
+            // Skip extension skip list
+            if self
+                .config
+                .extensions
+                .skip
+                .contains(&ext_or_name.to_string())
+            {
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+
+            // Resolve style (extension first, then filename)
+            let style = if abs_path.extension().is_some() {
+                self.config
+                    .extensions
+                    .custom
+                    .iter()
+                    .find(|c| c.ext == ext_or_name.as_str())
+                    .and_then(|c| match c.style.as_str() {
+                        "slash" => Some(CommentStyle::Slash),
+                        "hash" => Some(CommentStyle::Hash),
+                        "css" => Some(CommentStyle::Css),
+                        "html" => Some(CommentStyle::Html),
+                        _ => None,
+                    })
+                    .or_else(|| CommentStyle::from_ext(&ext_or_name))
+            } else {
+                // extensionless: check filename_skip first
+                if self
+                    .config
+                    .extensions
+                    .filename_skip
+                    .contains(&ext_or_name.to_string())
+                {
+                    stats.skipped.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+                self.config
+                    .extensions
+                    .filenames
+                    .iter()
+                    .find(|c| c.name.to_lowercase() == ext_or_name.as_str())
+                    .and_then(|c| match c.style.as_str() {
+                        "slash" => Some(CommentStyle::Slash),
+                        "hash" => Some(CommentStyle::Hash),
+                        "css" => Some(CommentStyle::Css),
+                        "html" => Some(CommentStyle::Html),
+                        _ => None,
+                    })
+                    .or_else(|| CommentStyle::filename_to_style(&ext_or_name))
+            };
+
+            let style = match style {
+                Some(s) => s,
+                None => return,
+            };
+
+            let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+            if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.patterns) {
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+            if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.header_skip) {
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+
+            let entry = WalkEntry {
+                abs_path: abs_path.clone(),
+                rel_path,
+                style,
+            };
+
+            match self.tag_file(&entry, root) {
+                Ok(action) => match action {
+                    TagResult::Tagged => {
+                        stats.tagged.fetch_add(1, Ordering::Relaxed);
+                    }
+                    TagResult::Updated => {
+                        stats.updated.fetch_add(1, Ordering::Relaxed);
+                    }
+                    TagResult::Current => {
+                        stats.current.fetch_add(1, Ordering::Relaxed);
+                    }
+                },
+                Err(e) => {
+                    stats.errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("{} {}: {}", "error".red(), abs_path.display(), e);
+                }
+            }
+        });
+
+        Ok(stats)
+    }
+
     fn tag_file(&self, entry: &WalkEntry, root: &Path) -> anyhow::Result<TagResult> {
         let content = std::fs::read_to_string(&entry.abs_path)?;
 
@@ -196,7 +386,14 @@ impl Processor {
             .abs_path
             .extension()
             .map(|e| e.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                // Extensionless file: use filename as override key
+                entry
+                    .abs_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default()
+            });
         let template = self
             .template_override
             .as_deref()
@@ -294,9 +491,16 @@ enum TagResult {
 }
 
 fn get_git_author() -> anyhow::Result<String> {
-    let out = std::process::Command::new("git")
-        .args(["config", "user.name"])
-        .output()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = std::process::Command::new("git")
+            .args(["config", "user.name"])
+            .output();
+        let _ = tx.send(result);
+    });
+    let out = rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|_| anyhow::anyhow!("git config timed out"))??;
     let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if name.is_empty() {
         anyhow::bail!("empty git user.name");

@@ -57,6 +57,18 @@ impl CommentStyle {
         }
     }
 
+    /// Map a known extensionless filename (lowercased) to a comment style.
+    pub fn filename_to_style(name: &str) -> Option<Self> {
+        match name {
+            "dockerfile" | "containerfile" => Some(Self::Hash),
+            "makefile" | "gnumakefile" => Some(Self::Hash),
+            "procfile" | "brewfile" | "gemfile" | "rakefile" | "guardfile" => Some(Self::Hash),
+            "jenkinsfile" => Some(Self::Slash),
+            "vagrantfile" => Some(Self::Hash),
+            _ => None,
+        }
+    }
+
     /// Wrap a rendered template body in this comment style.
     pub fn wrap(&self, body: &str) -> String {
         match self {

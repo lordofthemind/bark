@@ -36,6 +36,12 @@ pub enum Commands {
     Restore(RestoreArgs),
     /// Create a .bark.toml config file in the current directory
     Init(InitArgs),
+    /// Check that all files have current headers (exits 1 if any are missing or stale)
+    Check(CheckArgs),
+    /// Remove old backups, keeping only the N most recent per file
+    Clean(CleanArgs),
+    /// Show the resolved configuration for a directory
+    Config(ConfigShowArgs),
 }
 
 #[derive(Args, Debug)]
@@ -75,6 +81,10 @@ pub struct TagArgs {
     /// Skip generating bark.txt
     #[arg(long)]
     pub no_tree: bool,
+
+    /// Only process files staged in git (for use as a pre-commit hook)
+    #[arg(long)]
+    pub staged: bool,
 }
 
 impl Default for TagArgs {
@@ -89,6 +99,7 @@ impl Default for TagArgs {
             max_size: None,
             threads: 0,
             no_tree: false,
+            staged: false,
         }
     }
 }
@@ -114,9 +125,9 @@ pub struct StripArgs {
 
 #[derive(Args, Debug)]
 pub struct WatchArgs {
-    /// Root directory to watch (default: current directory)
+    /// Root directory(ies) to watch (default: current directory)
     #[arg(value_name = "DIR")]
-    pub root: Option<PathBuf>,
+    pub roots: Vec<PathBuf>,
 
     /// Debounce delay in milliseconds before processing changes
     #[arg(long, default_value = "500", value_name = "MS")]
@@ -174,4 +185,45 @@ pub struct InitArgs {
     /// Overwrite existing .bark.toml if present
     #[arg(long)]
     pub force: bool,
+
+    /// Auto-detect project type and generate tailored config
+    #[arg(long)]
+    pub detect: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct CheckArgs {
+    /// Root directory(ies) to check (default: current directory)
+    #[arg(value_name = "DIR")]
+    pub roots: Vec<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct CleanArgs {
+    /// Root directory(ies) to clean backups for (default: current directory)
+    #[arg(value_name = "DIR")]
+    pub roots: Vec<PathBuf>,
+
+    /// Backup directory
+    #[arg(long, default_value = ".barks", value_name = "DIR")]
+    pub backup_dir: PathBuf,
+
+    /// Number of most recent backups to keep per file
+    #[arg(long, default_value = "1", value_name = "N")]
+    pub keep: usize,
+
+    /// Preview without deleting
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ConfigShowArgs {
+    /// Directory to resolve config for (default: current directory)
+    #[arg(value_name = "DIR")]
+    pub root: Option<PathBuf>,
+
+    /// Also show which config file was loaded
+    #[arg(long)]
+    pub source: bool,
 }

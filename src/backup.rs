@@ -1,6 +1,7 @@
 // File: src/backup.rs
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, TimeZone};
+use colored::Colorize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -128,6 +129,50 @@ impl BackupManager {
             }
         }
         Ok(())
+    }
+
+    pub fn clean(&self, keep: usize, dry_run: bool, root: &Path) -> anyhow::Result<(usize, u64)> {
+        let all = self.list_backups(None, root)?;
+        if all.is_empty() {
+            return Ok((0, 0));
+        }
+
+        // Group by original file
+        let mut by_file: std::collections::HashMap<PathBuf, Vec<&BackupEntry>> =
+            std::collections::HashMap::new();
+        for entry in &all {
+            by_file
+                .entry(entry.original.clone())
+                .or_default()
+                .push(entry);
+        }
+
+        let mut removed = 0usize;
+        let mut freed = 0u64;
+
+        for (_orig, mut entries) in by_file {
+            // Sort by timestamp descending (newest first)
+            entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            // Skip the ones we want to keep, delete the rest
+            for entry in entries.iter().skip(keep) {
+                let size = std::fs::metadata(&entry.backup_path)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                if dry_run {
+                    println!(
+                        "{} would remove: {}",
+                        "clean".dimmed(),
+                        entry.backup_path.display()
+                    );
+                } else {
+                    std::fs::remove_file(&entry.backup_path)?;
+                }
+                removed += 1;
+                freed += size;
+            }
+        }
+
+        Ok((removed, freed))
     }
 
     pub fn restore(&self, entry: &BackupEntry, dry_run: bool) -> Result<()> {
