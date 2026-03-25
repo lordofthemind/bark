@@ -65,9 +65,13 @@ impl Processor {
         let entries = walker.walk();
         let stats = Stats::default();
 
-        entries
-            .par_iter()
-            .for_each(|entry| match self.tag_file(entry, root) {
+        entries.par_iter().for_each(|entry| {
+            let rel_str = entry.rel_path.to_string_lossy().replace('\\', "/");
+            if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.header_skip) {
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+            match self.tag_file(entry, root) {
                 Ok(action) => match action {
                     TagResult::Tagged => {
                         stats.tagged.fetch_add(1, Ordering::Relaxed);
@@ -83,7 +87,8 @@ impl Processor {
                     stats.errors.fetch_add(1, Ordering::Relaxed);
                     eprintln!("{} {}: {}", "error".red(), entry.rel_path.display(), e);
                 }
-            });
+            }
+        });
 
         Ok(stats)
     }
@@ -166,6 +171,11 @@ impl Processor {
         // Respect config exclude patterns
         let rel_str = rel_path.to_string_lossy().replace('\\', "/");
         if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.patterns) {
+            return Ok(());
+        }
+
+        // Respect header_skip patterns (file appears in bark.txt but skips header insertion)
+        if crate::walker::is_path_excluded(&rel_str, &self.config.exclude.header_skip) {
             return Ok(());
         }
 

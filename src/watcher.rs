@@ -216,7 +216,7 @@ mod tests {
         let proc = Arc::new(Processor::new(
             config,
             tmp.path(),
-            tmp.path().join(".bark_backups"),
+            tmp.path().join(".barks"),
             false,
             false,
             false,

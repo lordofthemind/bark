@@ -49,16 +49,16 @@ pub struct TagArgs {
     pub force: bool,
 
     /// Output file for the generated directory tree
-    #[arg(short, long, default_value = "tree.txt", value_name = "FILE")]
+    #[arg(short, long, default_value = "bark.txt", value_name = "FILE")]
     pub output: PathBuf,
 
     /// Directory to store backups
-    #[arg(short, long, default_value = ".bark_backups", value_name = "DIR")]
+    #[arg(short, long, default_value = ".barks", value_name = "DIR")]
     pub backup_dir: PathBuf,
 
-    /// Root directory to process (default: current directory)
+    /// Root directory(ies) to process (default: current directory)
     #[arg(value_name = "DIR")]
-    pub root: Option<PathBuf>,
+    pub roots: Vec<PathBuf>,
 
     /// Override header template for this run (e.g. "File: {{file}} | Author: {{author}}")
     #[arg(long, value_name = "TEMPLATE")]
@@ -72,7 +72,7 @@ pub struct TagArgs {
     #[arg(long, default_value = "0", value_name = "N")]
     pub threads: usize,
 
-    /// Skip generating tree.txt
+    /// Skip generating bark.txt
     #[arg(long)]
     pub no_tree: bool,
 }
@@ -82,9 +82,9 @@ impl Default for TagArgs {
         Self {
             dry_run: false,
             force: false,
-            output: PathBuf::from("tree.txt"),
-            backup_dir: PathBuf::from(".bark_backups"),
-            root: None,
+            output: PathBuf::from("bark.txt"),
+            backup_dir: PathBuf::from(".barks"),
+            roots: vec![],
             template: None,
             max_size: None,
             threads: 0,
@@ -99,16 +99,16 @@ pub struct StripArgs {
     #[arg(short = 'n', long)]
     pub dry_run: bool,
 
-    /// Root directory to process (default: current directory)
+    /// Root directory(ies) to process (default: current directory)
     #[arg(value_name = "DIR")]
-    pub root: Option<PathBuf>,
+    pub roots: Vec<PathBuf>,
 
     /// Create backups before stripping
     #[arg(short, long)]
     pub backup: bool,
 
     /// Backup directory (used with --backup)
-    #[arg(long, default_value = ".bark_backups", value_name = "DIR")]
+    #[arg(long, default_value = ".barks", value_name = "DIR")]
     pub backup_dir: PathBuf,
 }
 
@@ -127,7 +127,7 @@ pub struct WatchArgs {
     pub dry_run: bool,
 
     /// Output file for tree regeneration on change
-    #[arg(short, long, default_value = "tree.txt", value_name = "FILE")]
+    #[arg(short, long, default_value = "bark.txt", value_name = "FILE")]
     pub output: PathBuf,
 }
 
@@ -138,7 +138,7 @@ pub struct RestoreArgs {
     pub root: Option<PathBuf>,
 
     /// Backup directory to restore from
-    #[arg(long, default_value = ".bark_backups", value_name = "DIR")]
+    #[arg(long, default_value = ".barks", value_name = "DIR")]
     pub backup_dir: PathBuf,
 
     /// Restore only backups for this specific file
@@ -156,12 +156,12 @@ pub struct RestoreArgs {
 
 #[derive(Args, Debug)]
 pub struct TreeArgs {
-    /// Root directory to scan (default: current directory)
+    /// Root directory(ies) to scan (default: current directory)
     #[arg(value_name = "DIR")]
-    pub root: Option<PathBuf>,
+    pub roots: Vec<PathBuf>,
 
     /// Output file for the generated directory tree
-    #[arg(short, long, default_value = "tree.txt", value_name = "FILE")]
+    #[arg(short, long, default_value = "bark.txt", value_name = "FILE")]
     pub output: PathBuf,
 }
 

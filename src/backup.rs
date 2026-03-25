@@ -225,7 +225,7 @@ mod tests {
     fn list_backups_filter_by_file() {
         let tmp = tempfile::TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();
-        let backup_dir = root.join(".bark_backups");
+        let backup_dir = root.join(".barks");
 
         // Create two fake backup files
         std::fs::create_dir_all(&backup_dir).unwrap();
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn restore_copies_file() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".bark_backups");
+        let backup_dir = tmp.path().join(".barks");
         std::fs::create_dir_all(&backup_dir).unwrap();
 
         let bak = backup_dir.join("out.rs.20260319_120000.bak");
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn restore_creates_parent_dirs() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".bark_backups");
+        let backup_dir = tmp.path().join(".barks");
         std::fs::create_dir_all(&backup_dir).unwrap();
 
         let bak = backup_dir.join("source.rs.20260319_120000.bak");
@@ -320,7 +320,7 @@ mod tests {
         let source = tmp.path().join("main.rs");
         std::fs::write(&source, "content").unwrap();
 
-        let mgr = BackupManager::new(tmp.path().join(".bark_backups"), false);
+        let mgr = BackupManager::new(tmp.path().join(".barks"), false);
         let result = mgr.backup(&source, tmp.path()).unwrap();
         assert!(result.is_none(), "disabled backup should return None");
     }
@@ -333,7 +333,7 @@ mod tests {
         std::fs::create_dir_all(source.parent().unwrap()).unwrap();
         std::fs::write(&source, "original content\n").unwrap();
 
-        let backup_dir = root.join(".bark_backups");
+        let backup_dir = root.join(".barks");
         let mgr = BackupManager::new(backup_dir.clone(), true);
         let result = mgr.backup(&source, &root).unwrap();
 

@@ -241,11 +241,8 @@ fn tag_creates_backup_by_default() {
         .assert()
         .success();
 
-    let backup_dir = dir.path().join(".bark_backups");
-    assert!(
-        backup_dir.exists(),
-        ".bark_backups directory should be created"
-    );
+    let backup_dir = dir.path().join(".barks");
+    assert!(backup_dir.exists(), ".barks directory should be created");
 
     // At least one .bak file should exist somewhere inside
     let has_bak = walkdir_has_extension(&backup_dir, "bak");
@@ -426,8 +423,8 @@ fn lib_processor_tags_go_file() {
     .unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
     let stats = proc.run_tag(dir.path(), &output_path).unwrap();
@@ -455,8 +452,8 @@ fn lib_processor_tag_idempotent() {
     fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(
         Arc::clone(&config),
@@ -507,8 +504,8 @@ fn lib_processor_strip_removes_header() {
     .unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
     let stats = proc.run_strip(dir.path(), &output_path, false).unwrap();
@@ -534,8 +531,8 @@ fn lib_processor_dry_run_does_not_write() {
     fs::write(dir.path().join("main.go"), original).unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(config, dir.path(), backup_dir, true, false, false, None);
     proc.run_tag(dir.path(), &output_path).unwrap();
@@ -555,8 +552,8 @@ fn lib_processor_custom_template() {
     fs::write(dir.path().join("app.ts"), "export const x = 1;\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(
         config,
@@ -587,8 +584,8 @@ fn lib_processor_tag_with_backup() {
     fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(
         config,
@@ -618,7 +615,7 @@ fn lib_processor_tag_file_by_path() {
     fs::write(&file, "package util\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
 
     let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
     proc.tag_file_by_path(&file, dir.path()).unwrap();
@@ -636,15 +633,15 @@ fn lib_tree_generator_creates_tree_file() {
     fs::create_dir_all(dir.path().join("src")).unwrap();
     fs::write(dir.path().join("src/lib.rs"), "").unwrap();
 
-    let output_path = dir.path().join("tree.txt");
-    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("bark.txt");
+    let backup_dir = dir.path().join(".barks");
 
     let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path, &[]);
     let tree_str = gen.generate(&output_path).unwrap();
 
     assert!(tree_str.contains("main.go"), "tree should include main.go");
     assert!(tree_str.contains("src"), "tree should include src dir");
-    assert!(output_path.exists(), "tree.txt should be written to disk");
+    assert!(output_path.exists(), "bark.txt should be written to disk");
     let on_disk = fs::read_to_string(&output_path).unwrap();
     assert_eq!(
         tree_str, on_disk,
@@ -658,7 +655,7 @@ fn lib_tree_generator_excludes_backup_dir() {
 
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
     fs::create_dir_all(&backup_dir).unwrap();
     fs::write(
         backup_dir.join("main.go.20260101_000000.bak"),
@@ -666,12 +663,12 @@ fn lib_tree_generator_excludes_backup_dir() {
     )
     .unwrap();
 
-    let output_path = dir.path().join("tree.txt");
+    let output_path = dir.path().join("bark.txt");
     let gen = TreeGenerator::new(dir.path(), &backup_dir, &output_path, &[]);
     let tree_str = gen.generate(&output_path).unwrap();
 
     assert!(
-        !tree_str.contains(".bark_backups"),
+        !tree_str.contains(".barks"),
         "backup dir should be excluded from tree"
     );
 }
@@ -690,8 +687,8 @@ fn lib_walker_finds_source_files() {
     fs::write(dir.path().join("data.xyz"), "unknown format\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let output_path = dir.path().join("tree.txt");
-    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("bark.txt");
+    let backup_dir = dir.path().join(".barks");
 
     let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
     let entries = walker.walk();
@@ -731,8 +728,8 @@ fn lib_walker_skips_excluded_patterns() {
     fs::write(dir.path().join("app.js"), "normal js").unwrap();
 
     let config = Arc::new(Config::default()); // default excludes *.min.*
-    let output_path = dir.path().join("tree.txt");
-    let backup_dir = dir.path().join(".bark_backups");
+    let output_path = dir.path().join("bark.txt");
+    let backup_dir = dir.path().join(".barks");
 
     let walker = Walker::new(dir.path().to_path_buf(), config, output_path, backup_dir);
     let entries = walker.walk();
@@ -760,7 +757,7 @@ fn lib_backup_list_and_restore() {
     let source = dir.path().join("main.go");
     fs::write(&source, "original content\n").unwrap();
 
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
     let mgr = BackupManager::new(backup_dir.clone(), true);
 
     // Create a backup
@@ -796,7 +793,7 @@ fn lib_backup_restore_dry_run() {
     let source = dir.path().join("main.go");
     fs::write(&source, "original content\n").unwrap();
 
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
     let mgr = BackupManager::new(backup_dir, true);
     mgr.backup(&source, dir.path()).unwrap();
 
@@ -817,7 +814,7 @@ fn lib_backup_list_empty_when_no_backup_dir() {
     use bark::backup::BackupManager;
 
     let dir = TempDir::new().unwrap();
-    let backup_dir = dir.path().join(".bark_backups"); // does not exist
+    let backup_dir = dir.path().join(".barks"); // does not exist
     let mgr = BackupManager::new(backup_dir, false);
     let entries = mgr.list_backups(None, dir.path()).unwrap();
     assert!(entries.is_empty());
@@ -904,8 +901,8 @@ fn lib_processor_verbose_current() {
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     // First run: tag the file
     let proc = Processor::new(
@@ -946,8 +943,8 @@ fn lib_processor_tag_updates_stale_header() {
     fs::write(dir.path().join("main.go"), "package main\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     // First run: tag with default template
     let proc = Processor::new(
@@ -996,8 +993,8 @@ fn lib_processor_strip_dry_run() {
     fs::write(dir.path().join("main.go"), original).unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(config, dir.path(), backup_dir, true, false, false, None);
     proc.run_strip(dir.path(), &output_path, false).unwrap();
@@ -1085,8 +1082,8 @@ fn rwc_tag_output_is_directory_warning() {
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
 
-    // Create a *directory* named "tree.txt" to trigger the is_dir warning path
-    let tree_dir = dir.path().join("tree.txt");
+    // Create a *directory* named "bark.txt" to trigger the is_dir warning path
+    let tree_dir = dir.path().join("bark.txt");
     fs::create_dir_all(&tree_dir).unwrap();
     let tree_str = tree_dir.to_str().unwrap();
 
@@ -1107,7 +1104,7 @@ fn rwc_tag_verbose_tree() {
     fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
-    let tree = dir.path().join("tree.txt").to_str().unwrap().to_string();
+    let tree = dir.path().join("bark.txt").to_str().unwrap().to_string();
 
     // --verbose with tree generation covers the verbose "tree written to" print (line 73)
     let cli = Cli::parse_from(&[
@@ -1122,7 +1119,7 @@ fn rwc_tag_verbose_tree() {
         root,
     ]);
     bark::run_with_cli(cli).unwrap();
-    assert!(dir.path().join("tree.txt").exists());
+    assert!(dir.path().join("bark.txt").exists());
 }
 
 #[test]
@@ -1135,7 +1132,7 @@ fn rwc_tag_with_tree_generation() {
     fs::write(dir.path().join("app.rs"), "fn main() {}\n").unwrap();
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
-    let tree = dir.path().join("tree.txt").to_str().unwrap().to_string();
+    let tree = dir.path().join("bark.txt").to_str().unwrap().to_string();
 
     // Run without --no-tree so tree generation path is exercised
     let cli = Cli::parse_from(&[
@@ -1144,8 +1141,8 @@ fn rwc_tag_with_tree_generation() {
     bark::run_with_cli(cli).unwrap();
 
     assert!(
-        dir.path().join("tree.txt").exists(),
-        "tree.txt should be generated"
+        dir.path().join("bark.txt").exists(),
+        "bark.txt should be generated"
     );
     let content = fs::read_to_string(dir.path().join("app.rs")).unwrap();
     assert!(content.starts_with("// File: app.rs"));
@@ -1308,7 +1305,7 @@ fn rwc_tree_command() {
     fs::write(dir.path().join("src/lib.rs"), "").unwrap();
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
-    let tree_out = dir.path().join("mytree.txt");
+    let tree_out = dir.path().join("mybark.txt");
     let tree_str = tree_out.to_str().unwrap();
 
     let cli = Cli::parse_from(&["bark", "--config", &cfg, "tree", "--output", tree_str, root]);
@@ -1330,7 +1327,7 @@ fn rwc_tree_command_no_headers_added() {
     fs::write(dir.path().join("main.go"), original).unwrap();
     let cfg = write_config(&dir);
     let root = dir.path().to_str().unwrap();
-    let tree_out = dir.path().join("tree.txt").to_str().unwrap().to_string();
+    let tree_out = dir.path().join("bark.txt").to_str().unwrap().to_string();
 
     let cli = Cli::parse_from(&[
         "bark", "--config", &cfg, "tree", "--output", &tree_out, root,
@@ -1404,7 +1401,7 @@ fn rwc_restore_no_backups() {
 
     let dir = TempDir::new().unwrap();
     let cfg = write_config(&dir);
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
     // backup_dir does not exist → list_backups returns []
 
     let cli = Cli::parse_from(&[
@@ -1430,7 +1427,7 @@ fn rwc_restore_latest() {
     let source = dir.path().join("main.go");
     fs::write(&source, "original\n").unwrap();
 
-    let backup_dir = dir.path().join(".bark_backups");
+    let backup_dir = dir.path().join(".barks");
     let mgr = BackupManager::new(backup_dir.clone(), true);
     mgr.backup(&source, dir.path()).unwrap();
 
@@ -1453,7 +1450,7 @@ fn rwc_restore_latest() {
             "--root",
             ".",
             "--backup-dir",
-            ".bark_backups",
+            ".barks",
         ]);
         bark::run_with_cli(cli)
     })();
@@ -1524,8 +1521,8 @@ fn lib_processor_verbose_strip() {
     .unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     let proc = Processor::new(config, dir.path(), backup_dir, false, true, false, None);
     let stats = proc.run_strip(dir.path(), &output_path, false).unwrap();
@@ -1549,8 +1546,8 @@ fn lib_processor_dry_run_update() {
     .unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
 
     // Use a different template so the existing header is stale
     let proc = Processor::new(
@@ -1583,13 +1580,13 @@ fn watcher_run_fails_for_nonexistent_root() {
     let proc = Arc::new(Processor::new(
         config,
         tmp.path(),
-        tmp.path().join(".bark_backups"),
+        tmp.path().join(".barks"),
         false,
         false,
         false,
         None,
     ));
-    let fw = FileWatcher::new(proc, 100, tmp.path().join("tree.txt"), false);
+    let fw = FileWatcher::new(proc, 100, tmp.path().join("bark.txt"), false);
 
     // Watching a nonexistent path errors immediately — covers run() delegation (lines 30-31)
     let result = fw.run(std::path::Path::new("/nonexistent/bark/test/path/99999"));
@@ -1612,8 +1609,8 @@ fn watcher_stops_on_signal() {
     fs::write(dir.path().join("watch.go"), "package main\n").unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
     let root = dir.path().to_path_buf();
 
     let proc = Arc::new(Processor::new(
@@ -1664,8 +1661,8 @@ fn watcher_dry_run_does_not_write() {
     fs::write(dir.path().join("dry.go"), original).unwrap();
 
     let config = Arc::new(Config::default());
-    let backup_dir = dir.path().join(".bark_backups");
-    let output_path = dir.path().join("tree.txt");
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
     let root = dir.path().to_path_buf();
 
     let proc = Arc::new(Processor::new(

@@ -218,7 +218,7 @@ mod tests {
             std::path::PathBuf::from("."),
             config,
             std::path::PathBuf::from("tree.txt"),
-            std::path::PathBuf::from(".bark_backups"),
+            std::path::PathBuf::from(".barks"),
         );
         // .rs normally maps to Slash; custom override sets it to Hash
         assert_eq!(walker.resolve_style("rs"), Some(CommentStyle::Hash));
@@ -231,7 +231,7 @@ mod tests {
             std::path::PathBuf::from("."),
             config,
             std::path::PathBuf::from("tree.txt"),
-            std::path::PathBuf::from(".bark_backups"),
+            std::path::PathBuf::from(".barks"),
         );
         assert_eq!(walker.resolve_style("go"), Some(CommentStyle::Slash));
         assert_eq!(walker.resolve_style("py"), Some(CommentStyle::Hash));
@@ -260,7 +260,7 @@ mod tests {
             std::path::PathBuf::from("."),
             config,
             std::path::PathBuf::from("tree.txt"),
-            std::path::PathBuf::from(".bark_backups"),
+            std::path::PathBuf::from(".barks"),
         );
         assert_eq!(walker.resolve_style("mytml"), Some(CommentStyle::Html));
         assert_eq!(walker.resolve_style("mystyle"), Some(CommentStyle::Css));

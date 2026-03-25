@@ -15,7 +15,7 @@ use cli::{Cli, Commands};
 use colored::Colorize;
 use config::Config;
 use processor::Processor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub fn run() -> Result<()> {
@@ -23,26 +23,13 @@ pub fn run() -> Result<()> {
 }
 
 pub fn run_with_cli(cli: Cli) -> Result<()> {
-    // Load config: explicit flag → search upward → defaults
-    let config = match &cli.config {
-        Some(path) => Config::from_file(path)?,
-        None => Config::find_and_load(&std::env::current_dir()?)?.unwrap_or_default(),
-    };
-
     let command = cli
         .command
         .unwrap_or_else(|| Commands::Tag(cli::TagArgs::default()));
 
     match command {
         Commands::Tag(args) => {
-            let root = args
-                .root
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .canonicalize()
-                .unwrap_or_else(|_| PathBuf::from("."));
-
-            // Configure rayon thread pool
+            // Configure rayon thread pool once for all roots
             if args.threads > 0 {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(args.threads)
@@ -50,119 +37,140 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                     .ok();
             }
 
-            let max_size = args.max_size.unwrap_or(config.general.max_file_size);
-            let mut cfg = config.clone();
-            cfg.general.max_file_size = max_size;
+            let roots = resolve_roots(&args.roots);
+            let multi = roots.len() > 1;
 
-            let backup_dir = root.join(&args.backup_dir);
-            let output_path = root.join(&args.output);
-            let create_backups = !args.force && cfg.general.backup;
+            for root_path in &roots {
+                let root = root_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| root_path.clone());
 
-            let config = Arc::new(cfg);
+                let config = load_config(&cli.config, &root)?;
+                let max_size = args.max_size.unwrap_or(config.general.max_file_size);
+                let mut cfg = config;
+                cfg.general.max_file_size = max_size;
 
-            // Generate tree (skip in dry-run mode)
-            if !args.no_tree {
-                if args.dry_run {
-                    println!("{} would write {}", "tree".dimmed(), output_path.display());
-                } else if output_path.is_dir() {
-                    eprintln!(
-                        "{} '{}' is a directory — remove it or use --output to pick a different name",
-                        "warn".yellow(),
-                        output_path.display()
-                    );
-                } else {
-                    let gen = tree::TreeGenerator::new(
-                        &root,
-                        &backup_dir,
-                        &output_path,
-                        &config.exclude.patterns,
-                    );
-                    match gen.generate(&output_path) {
-                        Ok(_) => {
-                            if cli.verbose {
-                                println!(
-                                    "{} tree written to {}",
-                                    "bark".green().bold(),
-                                    output_path.display()
-                                );
+                let backup_dir = root.join(&args.backup_dir);
+                let output_path = root.join(&args.output);
+                let create_backups = !args.force && cfg.general.backup;
+                let config = Arc::new(cfg);
+
+                if multi {
+                    println!("\n{} {}", "→".bold(), root.display());
+                }
+
+                // Generate tree (skip in dry-run mode)
+                if !args.no_tree {
+                    if args.dry_run {
+                        println!("{} would write {}", "tree".dimmed(), output_path.display());
+                    } else if output_path.is_dir() {
+                        eprintln!(
+                            "{} '{}' is a directory — remove it or use --output to pick a different name",
+                            "warn".yellow(),
+                            output_path.display()
+                        );
+                    } else {
+                        let gen = tree::TreeGenerator::new(
+                            &root,
+                            &backup_dir,
+                            &output_path,
+                            &config.exclude.patterns,
+                        );
+                        match gen.generate(&output_path) {
+                            Ok(_) => {
+                                if cli.verbose {
+                                    println!(
+                                        "{} tree written to {}",
+                                        "bark".green().bold(),
+                                        output_path.display()
+                                    );
+                                }
                             }
+                            Err(e) => eprintln!("{} tree generation: {}", "warn".yellow(), e),
                         }
-                        Err(e) => eprintln!("{} tree generation: {}", "warn".yellow(), e),
                     }
                 }
+
+                let proc = Processor::new(
+                    Arc::clone(&config),
+                    &root,
+                    backup_dir,
+                    args.dry_run,
+                    cli.verbose,
+                    create_backups,
+                    args.template.clone(),
+                );
+
+                let stats = proc.run_tag(&root, &output_path)?;
+                print_tag_summary(&stats, args.dry_run);
             }
-
-            let proc = Processor::new(
-                Arc::clone(&config),
-                &root,
-                backup_dir,
-                args.dry_run,
-                cli.verbose,
-                create_backups,
-                args.template,
-            );
-
-            let stats = proc.run_tag(&root, &output_path)?;
-
-            print_tag_summary(&stats, args.dry_run);
         }
 
         Commands::Strip(args) => {
-            let root = args
-                .root
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .canonicalize()
-                .unwrap_or_else(|_| PathBuf::from("."));
+            let roots = resolve_roots(&args.roots);
+            let multi = roots.len() > 1;
 
-            let backup_dir = root.join(&args.backup_dir);
-            let output_path = root.join(&config.general.output);
-            let config = Arc::new(config);
+            for root_path in &roots {
+                let root = root_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| root_path.clone());
 
-            let proc = Processor::new(
-                Arc::clone(&config),
-                &root,
-                backup_dir,
-                args.dry_run,
-                cli.verbose,
-                args.backup,
-                None,
-            );
+                let config = load_config(&cli.config, &root)?;
+                let backup_dir = root.join(&args.backup_dir);
+                let output_path = root.join(&config.general.output);
+                let config = Arc::new(config);
 
-            let stats = proc.run_strip(&root, &output_path, args.backup)?;
-            print_strip_summary(&stats, args.dry_run);
+                if multi {
+                    println!("\n{} {}", "→".bold(), root.display());
+                }
+
+                let proc = Processor::new(
+                    Arc::clone(&config),
+                    &root,
+                    backup_dir,
+                    args.dry_run,
+                    cli.verbose,
+                    args.backup,
+                    None,
+                );
+
+                let stats = proc.run_strip(&root, &output_path, args.backup)?;
+                print_strip_summary(&stats, args.dry_run);
+            }
         }
 
         Commands::Tree(args) => {
-            let root = args
-                .root
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .canonicalize()
-                .unwrap_or_else(|_| PathBuf::from("."));
+            let roots = resolve_roots(&args.roots);
 
-            let output_path = root.join(&args.output);
+            for root_path in &roots {
+                let root = root_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| root_path.clone());
 
-            if output_path.is_dir() {
-                anyhow::bail!(
-                    "'{}' is a directory — use --output to specify a different filename",
+                let config = load_config(&cli.config, &root)?;
+                let output_path = root.join(&args.output);
+
+                if output_path.is_dir() {
+                    anyhow::bail!(
+                        "'{}' is a directory — use --output to specify a different filename",
+                        output_path.display()
+                    );
+                }
+
+                let backup_dir = root.join(config.general.backup_dir.clone());
+                let gen = tree::TreeGenerator::new(
+                    &root,
+                    &backup_dir,
+                    &output_path,
+                    &config.exclude.patterns,
+                );
+                gen.generate(&output_path)?;
+                println!(
+                    "{} tree written to {}",
+                    "bark".green().bold(),
                     output_path.display()
                 );
             }
-
-            let backup_dir = root.join(config.general.backup_dir.clone());
-            let gen = tree::TreeGenerator::new(
-                &root,
-                &backup_dir,
-                &output_path,
-                &config.exclude.patterns,
-            );
-            gen.generate(&output_path)?;
-            println!(
-                "{} tree written to {}",
-                "bark".green().bold(),
-                output_path.display()
-            );
         }
 
         Commands::Watch(args) => {
@@ -173,6 +181,7 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
                 .canonicalize()
                 .unwrap_or_else(|_| PathBuf::from("."));
 
+            let config = load_config(&cli.config, &root)?;
             let backup_dir = root.join(&config.general.backup_dir);
             let output_path = root.join(&args.output);
             let debounce = args.debounce;
@@ -268,6 +277,21 @@ pub fn run_with_cli(cli: Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    if roots.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        roots.to_vec()
+    }
+}
+
+fn load_config(explicit: &Option<PathBuf>, root: &Path) -> Result<Config> {
+    match explicit {
+        Some(path) => Config::from_file(path),
+        None => Ok(Config::find_and_load(root)?.unwrap_or_default()),
+    }
 }
 
 pub fn print_tag_summary(stats: &processor::Stats, dry_run: bool) {

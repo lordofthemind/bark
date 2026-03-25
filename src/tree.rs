@@ -23,14 +23,17 @@ impl TreeGenerator {
         let root_canon = canon(root);
 
         let mut allowed_paths = HashSet::new();
-        for entry in WalkBuilder::new(&root_canon)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
-            .add_custom_ignore_filename(".barkignore")
-            .build()
-            .flatten()
-        {
+        let gitignore_path = root_canon.join(".gitignore");
+        let mut builder = WalkBuilder::new(&root_canon);
+        builder
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .add_custom_ignore_filename(".barkignore");
+        if gitignore_path.is_file() {
+            builder.add_ignore(&gitignore_path);
+        }
+        for entry in builder.build().flatten() {
             let p = entry
                 .path()
                 .canonicalize()
@@ -51,7 +54,7 @@ impl TreeGenerator {
         let mut out = String::from(".\n");
         self.walk(&self.root, "", &mut out)?;
         std::fs::write(output_path, &out)
-            .map_err(|e| anyhow::anyhow!("writing tree.txt: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("writing bark.txt: {}", e))?;
         Ok(out)
     }
 

@@ -1,8 +1,8 @@
 # File: src/default_config.toml
 
 [general]
-output      = "tree.txt"        # tree output filename
-backup_dir  = ".bark_backups"   # where backups are stored
+output      = "bark.txt"        # tree output filename
+backup_dir  = ".barks"   # where backups are stored
 max_file_size = 1048576         # skip files larger than this (bytes)
 backup      = true              # create backups before modifying files
 
@@ -22,7 +22,7 @@ date_format = "%Y-%m-%d"
 # project = "my-project"
 
 [exclude]
-# Glob patterns for files/directories to skip
+# Glob patterns for files/directories to skip entirely (excluded from both bark.txt and header insertion)
 patterns = [
     "*.min.*",
     "*.bundle.*",
@@ -32,6 +32,8 @@ patterns = [
     "vendor/**",
     "target/**",
 ]
+# Patterns for files that appear in bark.txt but do NOT receive headers
+header_skip = []
 
 [extensions]
 # Extra extensions to process beyond the built-in set

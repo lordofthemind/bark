@@ -33,10 +33,10 @@ pub struct GeneralConfig {
 }
 
 fn default_output() -> String {
-    "tree.txt".into()
+    "bark.txt".into()
 }
 fn default_backup_dir() -> String {
-    ".bark_backups".into()
+    ".barks".into()
 }
 fn default_max_file_size() -> u64 {
     1_048_576
@@ -90,6 +90,8 @@ impl Default for TemplateConfig {
 pub struct ExcludeConfig {
     #[serde(default = "default_exclude_patterns")]
     pub patterns: Vec<String>,
+    #[serde(default)]
+    pub header_skip: Vec<String>,
 }
 
 fn default_exclude_patterns() -> Vec<String> {
@@ -108,6 +110,7 @@ impl Default for ExcludeConfig {
     fn default() -> Self {
         Self {
             patterns: default_exclude_patterns(),
+            header_skip: Vec::new(),
         }
     }
 }
@@ -191,8 +194,8 @@ mod tests {
     #[test]
     fn config_defaults() {
         let c = Config::default();
-        assert_eq!(c.general.output, "tree.txt");
-        assert_eq!(c.general.backup_dir, ".bark_backups");
+        assert_eq!(c.general.output, "bark.txt");
+        assert_eq!(c.general.backup_dir, ".barks");
         assert_eq!(c.general.max_file_size, 1_048_576);
         assert!(c.general.backup);
         assert_eq!(c.template.default, "File: {{file}}");
@@ -211,7 +214,7 @@ output = "my_tree.txt"
         let c = Config::from_file(tmp.path()).unwrap();
         assert_eq!(c.general.output, "my_tree.txt");
         // Everything else falls back to defaults
-        assert_eq!(c.general.backup_dir, ".bark_backups");
+        assert_eq!(c.general.backup_dir, ".barks");
         assert_eq!(c.template.default, "File: {{file}}");
     }
 
