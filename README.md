@@ -20,8 +20,11 @@
   - [strip](#strip)
   - [tree](#tree)
   - [watch](#watch)
+  - [check](#check)
+  - [clean](#clean)
   - [restore](#restore)
   - [init](#init)
+  - [config](#config)
 - [Config file](#config-file)
 - [Template system](#template-system)
 - [Supported file types](#supported-file-types)
@@ -40,6 +43,7 @@
 - **Non-destructive.** Before modifying any file, bark creates a timestamped backup. Every change can be reverted with `bark restore`.
 - **Template-driven.** The header text is fully configurable: embed the file path, author, date, project name, or any static variable you define.
 - **Fast.** Files are processed in parallel with Rayon. Binary files, gitignored paths, and files over the size limit are skipped automatically.
+- **CI-ready.** `bark check` exits with code 1 if any headers are missing or stale — drop it straight into a pre-commit hook or CI pipeline.
 - **74+ file types** across four comment styles out of the box. Extend with your own.
 
 ---
@@ -99,22 +103,25 @@ This also installs to `~/.cargo/bin`.
 ## Quick start
 
 ```bash
-# 1. Create a config file in your project (optional but recommended)
-bark init
+# 1. Create a config file in your project (auto-detects project type)
+bark init --detect
 
-# 2. Tag all source files and generate tree.txt
+# 2. Tag all source files and generate bark.txt
 bark
 
 # 3. Preview changes without writing anything
 bark tag --dry-run
 
-# 4. Watch for changes and auto-tag on every save
+# 4. Check that all headers are present and current (exits 1 if not)
+bark check
+
+# 5. Watch for changes and auto-tag on every save
 bark watch
 
-# 5. Remove all headers
+# 6. Remove all headers
 bark strip
 
-# 6. Generate only the directory tree, no headers touched
+# 7. Generate only the directory tree, no headers touched
 bark tree
 ```
 
@@ -124,6 +131,8 @@ bark tree
 
 All commands accept `-v / --verbose` for detailed per-file output and `--config <FILE>` to point at a specific `.bark.toml`.
 
+Most commands accept one or more `[DIR]` arguments for **multi-root processing** — useful for monorepos or tagging several projects in one invocation.
+
 ---
 
 ### `tag` (default)
@@ -131,25 +140,26 @@ All commands accept `-v / --verbose` for detailed per-file output and `--config 
 Add or update bark-managed headers across an entire directory tree. This is the default command — running `bark` with no subcommand is equivalent to `bark tag`.
 
 ```
-bark tag [OPTIONS] [DIR]
+bark tag [OPTIONS] [DIR]...
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `-n, --dry-run` | — | Preview what would change; write nothing |
 | `-f, --force` | — | Skip backups before modifying files |
-| `-o, --output <FILE>` | `tree.txt` | Output path for the directory tree |
-| `-b, --backup-dir <DIR>` | `.bark_backups` | Where to store backups |
+| `-o, --output <FILE>` | `bark.txt` | Output path for the directory tree |
+| `-b, --backup-dir <DIR>` | `.barks` | Where to store backups |
 | `--template <TEMPLATE>` | — | Override header template for this run |
 | `--max-size <BYTES>` | `1048576` | Skip files larger than this (default 1 MB) |
 | `--threads <N>` | `0` (auto) | Rayon thread count (0 = use all cores) |
-| `--no-tree` | — | Skip tree.txt generation |
-| `[DIR]` | `.` | Root directory to process |
+| `--no-tree` | — | Skip bark.txt generation |
+| `--staged` | — | Only process files staged in git (pre-commit hook mode) |
+| `[DIR]...` | `.` | Root directory(ies) to process |
 
 **Examples:**
 
 ```bash
-# Tag everything in the current directory (with tree.txt)
+# Tag everything in the current directory (with bark.txt)
 bark
 
 # Tag a specific directory without creating backups
@@ -160,6 +170,12 @@ bark tag --dry-run --no-tree --template "File: {{file}} | {{author}}"
 
 # Limit parallel threads and skip files over 512 KB
 bark tag --threads 4 --max-size 512000
+
+# Tag multiple roots at once (monorepo)
+bark tag services/api services/worker
+
+# Use as a git pre-commit hook (only tags staged files)
+bark tag --staged --no-tree
 ```
 
 **Output:**
@@ -179,15 +195,15 @@ bark done
 Remove all bark-managed headers from every file in the directory tree.
 
 ```
-bark strip [OPTIONS] [DIR]
+bark strip [OPTIONS] [DIR]...
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `-n, --dry-run` | — | Preview which headers would be removed |
 | `-b, --backup` | — | Create backups before stripping |
-| `--backup-dir <DIR>` | `.bark_backups` | Backup location (used with `--backup`) |
-| `[DIR]` | `.` | Root directory to process |
+| `--backup-dir <DIR>` | `.barks` | Backup location (used with `--backup`) |
+| `[DIR]...` | `.` | Root directory(ies) to process |
 
 **Examples:**
 
@@ -207,25 +223,29 @@ bark strip --backup
 Generate a directory tree file **without touching any source file headers**.
 
 ```
-bark tree [OPTIONS] [DIR]
+bark tree [OPTIONS] [DIR]...
 ```
 
 | Flag | Default | Description |
 |---|---|---|
-| `-o, --output <FILE>` | `tree.txt` | Output path for the tree |
-| `[DIR]` | `.` | Root directory to scan |
+| `-o, --output <FILE>` | `bark.txt` | Output path for the tree |
+| `[DIR]...` | `.` | Root directory(ies) to scan |
 
-**Example output (`tree.txt`):**
+**Example output (`bark.txt`):**
 
 ```
 .
 ├── src/
 │   ├── cli.rs
+│   ├── detect.rs
 │   ├── header.rs
 │   ├── lib.rs
 │   ├── main.rs
 │   ├── processor.rs
-│   └── walker.rs
+│   ├── template.rs
+│   ├── tree.rs
+│   ├── walker.rs
+│   └── watcher.rs
 ├── tests/
 │   └── integration.rs
 ├── Cargo.toml
@@ -234,7 +254,7 @@ bark tree [OPTIONS] [DIR]
 
 The tree respects the same ignore rules as the rest of bark — `.gitignore`, `.barkignore`, and `[exclude] patterns` from `.bark.toml` all apply. Hidden directories (`.git`, etc.) and the backup directory are always excluded.
 
-> **Note:** `bark tag` generates `tree.txt` automatically after tagging. Use `--no-tree` to skip it or `bark tree` to generate it standalone.
+> **Note:** `bark tag` generates `bark.txt` automatically after tagging. Use `--no-tree` to skip it or `bark tree` to generate it standalone.
 
 **Examples:**
 
@@ -255,22 +275,22 @@ bark tree ~/projects/myapp
 Watch a directory for file changes and automatically tag modified files as they are saved.
 
 ```
-bark watch [OPTIONS] [DIR]
+bark watch [OPTIONS] [DIR]...
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--debounce <MS>` | `500` | Milliseconds to wait after a change before processing |
 | `-n, --dry-run` | — | Log what would be tagged without writing |
-| `-o, --output <FILE>` | `tree.txt` | Output path for tree regeneration |
-| `[DIR]` | `.` | Root directory to watch |
+| `-o, --output <FILE>` | `bark.txt` | Output path for tree regeneration |
+| `[DIR]...` | `.` | Root directory(ies) to watch |
 
 **How it works:**
 
 1. Watches the directory recursively for create and write events.
 2. Waits for the debounce window to pass (collecting burst saves from editors).
-3. Tags all changed files in parallel — same exclude patterns, skip list, and custom extensions from your config apply.
-4. Regenerates `tree.txt`.
+3. Tags all changed files — same exclude patterns, skip list, and custom extensions from your config apply.
+4. Regenerates `bark.txt`.
 5. Tracks files bark itself just wrote to prevent self-tagging loops.
 
 Press `Ctrl-C` to stop.
@@ -286,6 +306,89 @@ bark watch --debounce 200
 
 # Preview mode — see what would be tagged without writing
 bark watch --dry-run
+
+# Watch multiple roots simultaneously (monorepo)
+bark watch services/api services/worker
+```
+
+---
+
+### `check`
+
+Verify that every file in the project has a current bark-managed header. Exits with code **1** if any headers are missing or stale — making it ideal for CI pipelines and pre-commit hooks.
+
+```
+bark check [DIR]...
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `[DIR]...` | `.` | Root directory(ies) to check |
+
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | All headers are present and up to date |
+| `1` | One or more files have missing or stale headers |
+
+**Examples:**
+
+```bash
+# Check the current directory
+bark check
+
+# Check a specific project
+bark check ~/projects/myapp
+
+# Use in a pre-commit hook or CI step
+bark check || exit 1
+```
+
+**Adding to a git pre-commit hook (`.git/hooks/pre-commit`):**
+
+```bash
+#!/bin/sh
+bark tag --staged --no-tree && bark check
+```
+
+---
+
+### `clean`
+
+Remove old backups, keeping only the N most recent per source file.
+
+```
+bark clean [OPTIONS] [DIR]...
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--keep <N>` | `1` | Number of most recent backups to keep per file |
+| `--backup-dir <DIR>` | `.barks` | Backup directory to clean |
+| `-n, --dry-run` | — | Preview what would be deleted without deleting |
+| `[DIR]...` | `.` | Root directory(ies) |
+
+**Examples:**
+
+```bash
+# Keep only the most recent backup of each file
+bark clean
+
+# Keep the 3 most recent backups
+bark clean --keep 3
+
+# Preview before deleting
+bark clean --dry-run
+
+# Clean a specific backup directory
+bark clean --backup-dir /mnt/safe/backups
+```
+
+**Output:**
+
+```
+bark clean  removed 14 backup(s), freed 2.3 MB
 ```
 
 ---
@@ -301,7 +404,7 @@ bark restore [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--root <DIR>` | `.` | Project root directory |
-| `--backup-dir <DIR>` | `.bark_backups` | Backup directory to read from |
+| `--backup-dir <DIR>` | `.barks` | Backup directory to read from |
 | `--file <FILE>` | — | Filter to backups of a specific file |
 | `-n, --dry-run` | — | Preview what would be restored |
 | `--latest` | — | Auto-restore the most recent backup of each file |
@@ -340,7 +443,7 @@ bark restore --backup-dir /mnt/safe/backups --latest
 
 ### `init`
 
-Write a default `.bark.toml` config file in the specified directory.
+Write a `.bark.toml` config file in the specified directory.
 
 ```
 bark init [OPTIONS] [DIR]
@@ -348,13 +451,19 @@ bark init [OPTIONS] [DIR]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--detect` | — | Auto-detect project type and generate a tailored config |
 | `--force` | — | Overwrite an existing `.bark.toml` |
 | `[DIR]` | `.` | Directory to write the config into |
+
+With `--detect`, bark inspects the directory for known project markers (`Cargo.toml`, `go.mod`, `package.json`, `tsconfig.json`, `.tf` files, `Dockerfile`, etc.) and generates a config with sensible excludes pre-filled for that stack.
 
 **Examples:**
 
 ```bash
-# Create .bark.toml in the current directory
+# Create .bark.toml with auto-detected project settings
+bark init --detect
+
+# Create a generic .bark.toml
 bark init
 
 # Overwrite an existing config
@@ -366,11 +475,45 @@ bark init ~/projects/myapp
 
 ---
 
+### `config`
+
+Show the fully resolved configuration that bark would use for a given directory — useful for debugging which config file is being picked up and what the effective values are.
+
+```
+bark config [OPTIONS] [DIR]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--source` | — | Also print the path of the config file that was loaded |
+| `[DIR]` | `.` | Directory to resolve config for |
+
+**Examples:**
+
+```bash
+# Show resolved config for the current directory
+bark config
+
+# Show config and which file it came from
+bark config --source
+
+# Show config for a specific directory
+bark config ~/projects/myapp
+```
+
+---
+
 ## Config file
 
 bark searches upward from the current directory for `.bark.toml`. If none is found, it checks `~/.config/bark/config.toml`. If neither exists, built-in defaults are used — no config file is required.
 
-Generate a fully-commented default config with:
+Generate a config pre-filled for your project type with:
+
+```bash
+bark init --detect
+```
+
+Or generate a generic commented config with:
 
 ```bash
 bark init
@@ -380,10 +523,10 @@ bark init
 
 ```toml
 [general]
-output        = "tree.txt"      # tree output filename
-backup_dir    = ".bark_backups" # where backups are stored
-max_file_size = 1048576         # skip files larger than this (bytes, default 1 MB)
-backup        = true            # create backups before modifying files
+output        = "bark.txt"  # tree output filename
+backup_dir    = ".barks"    # where backups are stored
+max_file_size = 1048576     # skip files larger than this (bytes, default 1 MB)
+backup        = true        # create backups before modifying files
 
 [template]
 # Header text applied to every file.
@@ -414,6 +557,10 @@ patterns = [
     "vendor/**",
     "target/**",
 ]
+# Files matching these patterns are walked and included in bark.txt,
+# but headers are NOT added or updated (useful for generated/vendored files
+# that you still want in the tree)
+header_skip = ["*.pb.go", "src/generated/**"]
 
 [extensions]
 # Add support for file types not in the built-in set
@@ -422,8 +569,16 @@ custom = [
     { ext = "lua",   style = "slash" },
     { ext = "bicep", style = "slash" },
 ]
-# Extensions to always skip, even if they match a built-in style
+# Extensions to always skip entirely (not tagged, not in tree)
 skip = ["txt"]
+
+# Custom support for extensionless files (e.g. Dockerfile, Jenkinsfile)
+filenames = [
+    { name = "Dockerfile",  style = "hash"  },
+    { name = "Jenkinsfile", style = "slash" },
+]
+# Extensionless filenames to always skip
+filename_skip = []
 
 [watch]
 debounce_ms = 500   # milliseconds to wait after a change before processing
@@ -447,7 +602,7 @@ The header text written into each file is controlled by a template string. Every
 | Variable | Example value | Description |
 |---|---|---|
 | `{{file}}` | `src/main.rs` | Relative file path (forward slashes on all platforms) |
-| `{{date}}` | `2026-03-19` | Today's date (format set by `date_format` in config) |
+| `{{date}}` | `2026-03-25` | Today's date (format set by `date_format` in config) |
 | `{{year}}` | `2026` | Current year |
 | `{{author}}` | `Alice` | `[template.variables] author` → `git config user.name` → `"unknown"` |
 | `{{project}}` | `bark` | `[template.variables] project` → parent directory name |
@@ -537,6 +692,21 @@ bark supports 74+ extensions across four comment styles.
 | Data / Config | `toml` `yaml` `yml` |
 | Plain Text | `txt` |
 
+### Extensionless files
+
+bark recognises common extensionless filenames and tags them automatically:
+
+| Filename | Style |
+|---|---|
+| `Makefile` | Hash |
+| `Dockerfile` | Hash |
+| `Jenkinsfile` | Hash |
+| `Rakefile` | Hash |
+| `Gemfile` | Hash |
+| `Brewfile` | Hash |
+
+Add more via `[extensions] filenames` in your config.
+
 ### `/* */` — CSS
 
 `css` `scss` `sass` `less` `styl`
@@ -556,6 +726,16 @@ custom = [
 ]
 ```
 
+### Adding custom extensionless filenames
+
+```toml
+[extensions]
+filenames = [
+    { name = "Dockerfile",  style = "hash"  },
+    { name = "Jenkinsfile", style = "slash" },
+]
+```
+
 ### Skipping built-in extensions
 
 ```toml
@@ -567,12 +747,13 @@ skip = ["txt", "toml"]   # never tag these even if they have a built-in style
 
 ## Ignoring files
 
-bark respects multiple layers of ignore rules, evaluated in this order. All rules apply to both **file tagging** and **`tree.txt` generation**.
+bark respects multiple layers of ignore rules, evaluated in this order. All rules apply to both **file tagging** and **`bark.txt` generation**.
 
 1. **`.gitignore`** — any `.gitignore` in the tree, the global git ignore (`core.excludesFile`), and `.git/info/exclude` are all honoured automatically via the `ignore` crate.
 2. **`.barkignore`** — a bark-specific ignore file using the same gitignore syntax. Useful when you want bark to skip files without modifying `.gitignore`.
-3. **`[exclude] patterns`** in `.bark.toml` — glob patterns applied on top of the above.
-4. **`[extensions] skip`** — skip specific file extensions entirely (tagging only).
+3. **`[exclude] patterns`** in `.bark.toml` — glob patterns applied on top of the above. Files matching these are excluded from both tagging **and** the tree.
+4. **`[exclude] header_skip`** — files matching these patterns are still included in the tree but **headers are not added or modified**. Useful for generated or vendored files you want visible in the tree.
+5. **`[extensions] skip`** — skip specific file extensions entirely (tagging only).
 
 ### Example `.barkignore`
 
@@ -591,14 +772,14 @@ Place `.barkignore` in your project root (same directory as `.bark.toml`).
 
 ## Backup & restore
 
-By default, bark creates a timestamped backup of every file it modifies. Backups live in `.bark_backups/` and mirror the source tree structure.
+By default, bark creates a timestamped backup of every file it modifies. Backups live in `.barks/` and mirror the source tree structure.
 
 ```
-.bark_backups/
+.barks/
 └── src/
-    ├── main.rs.20260319_142022.bak
+    ├── main.rs.20260325_142022.bak
     └── main.rs.20260318_091044.bak
-└── lib.rs.20260318_091044.bak
+    └── lib.rs.20260318_091044.bak
 ```
 
 The naming format is:
@@ -620,6 +801,19 @@ bark tag --force
 ```toml
 [general]
 backup = false
+```
+
+### Keep backup storage under control
+
+```bash
+# Keep only the most recent backup per file
+bark clean
+
+# Keep the 3 most recent
+bark clean --keep 3
+
+# Preview what would be deleted first
+bark clean --dry-run
 ```
 
 ### Restore the latest backup of every file
@@ -667,7 +861,7 @@ Every time you save a file:
 
 1. bark waits for the debounce window (default 500 ms) to collect burst saves.
 2. Modified files are tagged — the same exclude patterns, skip list, and custom extensions from your config apply.
-3. `tree.txt` is regenerated.
+3. `bark.txt` is regenerated.
 
 bark tracks files it just wrote so it never enters a self-tagging loop.
 
@@ -676,6 +870,12 @@ Tune the debounce:
 ```bash
 bark watch --debounce 200   # 200 ms — snappier for fast editors
 bark watch --debounce 1000  # 1 s — fewer writes on slow network filesystems
+```
+
+Watch multiple roots at once:
+
+```bash
+bark watch services/api services/worker
 ```
 
 ---
@@ -716,7 +916,7 @@ cargo install cargo-tarpaulin
 cargo tarpaulin --out Html --output-dir coverage/
 ```
 
-Current coverage: **91.08%** across 706 instrumented lines.
+Current coverage: **90.16%** across 1199 instrumented lines.
 
 ---
 
