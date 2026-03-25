@@ -1767,7 +1767,9 @@ fn watcher_multi_stops_on_signal() {
     std::thread::sleep(std::time::Duration::from_millis(400));
 
     stop.store(true, Ordering::Relaxed);
-    handle.join().expect("multi-watcher thread should exit cleanly");
+    handle
+        .join()
+        .expect("multi-watcher thread should exit cleanly");
 
     // Both files should have received a header
     let content1 = fs::read_to_string(dir1.path().join("a.go")).unwrap();
@@ -1829,7 +1831,10 @@ fn watcher_multi_dry_run_does_not_write() {
 
     // dry_run → file must not have a header
     let content = fs::read_to_string(dir.path().join("dry.go")).unwrap();
-    assert!(!content.starts_with("// File:"), "dry-run must not add header");
+    assert!(
+        !content.starts_with("// File:"),
+        "dry-run must not add header"
+    );
 }
 
 #[test]
@@ -1872,9 +1877,7 @@ fn watcher_single_watch_ignore_pattern() {
     let root = dir.path().to_path_buf();
 
     let handle = std::thread::spawn(move || {
-        fw_clone
-            .run_until_stopped(&root, Some(stop_clone))
-            .unwrap();
+        fw_clone.run_until_stopped(&root, Some(stop_clone)).unwrap();
     });
 
     std::thread::sleep(std::time::Duration::from_millis(150));
@@ -1887,7 +1890,10 @@ fn watcher_single_watch_ignore_pattern() {
 
     // ignored.go should NOT have gotten a header (watch.ignore skips it)
     let content = fs::read_to_string(dir.path().join("ignored.go")).unwrap();
-    assert!(!content.starts_with("// File:"), "ignored file should not be tagged");
+    assert!(
+        !content.starts_with("// File:"),
+        "ignored file should not be tagged"
+    );
 }
 
 #[test]
@@ -1945,7 +1951,10 @@ fn watcher_multi_watch_ignore_pattern() {
     handle.join().unwrap();
 
     let content = fs::read_to_string(dir.path().join("ignored.go")).unwrap();
-    assert!(!content.starts_with("// File:"), "ignored file should not be tagged");
+    assert!(
+        !content.starts_with("// File:"),
+        "ignored file should not be tagged"
+    );
 }
 
 #[test]
@@ -2360,7 +2369,15 @@ fn rwc_clean_removes_old_backups() {
     let bd = backup_dir.to_str().unwrap();
 
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "clean", "--keep", "1", "--backup-dir", bd, root,
+        "bark",
+        "--config",
+        &cfg,
+        "clean",
+        "--keep",
+        "1",
+        "--backup-dir",
+        bd,
+        root,
     ]);
     bark::run_with_cli(cli).unwrap();
 
@@ -2548,6 +2565,194 @@ fn rwc_init_detect_unknown_project() {
     assert!(dir.path().join(".bark.toml").exists());
 }
 
+// ── multi-root tag ────────────────────────────────────────────────────────────
+
+#[test]
+fn rwc_tag_multi_root() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir1 = TempDir::new().unwrap();
+    let dir2 = TempDir::new().unwrap();
+    init_git(&dir1);
+    init_git(&dir2);
+    fs::write(dir1.path().join("a.go"), "package main\n").unwrap();
+    fs::write(dir2.path().join("b.go"), "package main\n").unwrap();
+
+    let cfg_dir = TempDir::new().unwrap();
+    let cfg = cfg_dir.path().join("test.bark.toml");
+    fs::write(
+        &cfg,
+        "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n",
+    )
+    .unwrap();
+    let cfg_str = cfg.to_str().unwrap();
+    let root1 = dir1.path().to_str().unwrap();
+    let root2 = dir2.path().to_str().unwrap();
+
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        cfg_str,
+        "tag",
+        "--no-tree",
+        "--force",
+        root1,
+        root2,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+
+    assert!(fs::read_to_string(dir1.path().join("a.go"))
+        .unwrap()
+        .starts_with("// File: a.go"));
+    assert!(fs::read_to_string(dir2.path().join("b.go"))
+        .unwrap()
+        .starts_with("// File: b.go"));
+}
+
+#[test]
+fn rwc_tag_dry_run_no_tree_prints_would_write() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let tree = dir.path().join("bark.txt").to_str().unwrap().to_string();
+
+    // --dry-run without --no-tree → should print "would write tree" (line 66)
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "tag",
+        "--dry-run",
+        "--output",
+        &tree,
+        root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+    // bark.txt should NOT be created in dry-run mode
+    assert!(!dir.path().join("bark.txt").exists());
+}
+
+// ── processor run_tag with header_skip ───────────────────────────────────────
+
+#[test]
+fn lib_processor_run_tag_skips_header_skip_files() {
+    use bark::config::Config;
+    use bark::processor::Processor;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+
+    let dir = TempDir::new().unwrap();
+    init_git(&dir);
+    fs::write(dir.path().join("main.go"), "package main\n").unwrap();
+    // header_skip = ["*.txt"] — txt files should pass walker but be skipped in run_tag
+    let mut config = Config::default();
+    config.exclude.patterns = vec![];
+    config.exclude.header_skip = vec!["*.txt".to_string()];
+    // .txt is a supported extension (hash style)
+    fs::write(dir.path().join("notes.txt"), "some notes\n").unwrap();
+
+    let config = Arc::new(config);
+    let backup_dir = dir.path().join(".barks");
+    let output_path = dir.path().join("bark.txt");
+
+    let proc = Processor::new(config, dir.path(), backup_dir, false, false, false, None);
+    let stats = proc.run_tag(dir.path(), &output_path).unwrap();
+
+    assert!(
+        stats.skipped.load(Ordering::Relaxed) >= 1,
+        "txt file should be skipped via header_skip"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("notes.txt")).unwrap(),
+        "some notes\n"
+    );
+    assert!(fs::read_to_string(dir.path().join("main.go"))
+        .unwrap()
+        .starts_with("// File: main.go"));
+}
+
+// ── format_bytes MB path ──────────────────────────────────────────────────────
+
+#[test]
+fn rwc_format_bytes_mb_range() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    // Two 600KB backups so freed > 1MB → hits the "MB" branch in format_bytes
+    let content = "x".repeat(600 * 1024);
+    for ts in &["20260101_120000", "20260102_120000"] {
+        fs::write(backup_dir.join(format!("huge.rs.{}.bak", ts)), &content).unwrap();
+    }
+
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let bd = backup_dir.to_str().unwrap();
+
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "clean",
+        "--keep",
+        "1",
+        "--backup-dir",
+        bd,
+        root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+}
+
+#[test]
+fn rwc_clean_dry_run_with_large_backups() {
+    use bark::cli::Cli;
+    use clap::Parser;
+
+    let dir = TempDir::new().unwrap();
+    let backup_dir = dir.path().join(".barks");
+    fs::create_dir_all(&backup_dir).unwrap();
+
+    // Three 600KB backups; keep=1 removes 2 → 1.2MB freed → hits MB branch in format_bytes
+    let content = "x".repeat(600 * 1024);
+    for ts in &["20260101_120000", "20260102_120000", "20260103_120000"] {
+        fs::write(backup_dir.join(format!("huge.rs.{}.bak", ts)), &content).unwrap();
+    }
+
+    let cfg = write_config(&dir);
+    let root = dir.path().to_str().unwrap();
+    let bd = backup_dir.to_str().unwrap();
+
+    let cli = Cli::parse_from(&[
+        "bark",
+        "--config",
+        &cfg,
+        "clean",
+        "--dry-run",
+        "--keep",
+        "1",
+        "--backup-dir",
+        bd,
+        root,
+    ]);
+    bark::run_with_cli(cli).unwrap();
+
+    // All files should still exist (dry-run doesn't delete)
+    let remaining: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(remaining.len(), 3);
+}
+
 // ── bark check multi-root ────────────────────────────────────────────────────
 
 #[test]
@@ -2568,7 +2773,11 @@ fn rwc_check_multi_root_all_current() {
     // Create a config outside the roots
     let cfg_dir = TempDir::new().unwrap();
     let cfg = cfg_dir.path().join("test.bark.toml");
-    fs::write(&cfg, "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n").unwrap();
+    fs::write(
+        &cfg,
+        "[general]\nbackup = false\n[template]\ndefault = \"File: {{file}}\"\n",
+    )
+    .unwrap();
     let cfg_str = cfg.to_str().unwrap();
 
     let cli = Cli::parse_from(&["bark", "--config", cfg_str, "check", root1, root2]);
@@ -2668,11 +2877,7 @@ fn rwc_format_bytes_kb_range() {
     // Write two 2KB backups so freed > 1024 → "X.X KB" output
     let content = "x".repeat(2048);
     for ts in &["20260101_120000", "20260102_120000"] {
-        fs::write(
-            backup_dir.join(format!("big.rs.{}.bak", ts)),
-            &content,
-        )
-        .unwrap();
+        fs::write(backup_dir.join(format!("big.rs.{}.bak", ts)), &content).unwrap();
     }
 
     let cfg = write_config(&dir);
@@ -2680,7 +2885,15 @@ fn rwc_format_bytes_kb_range() {
     let bd = backup_dir.to_str().unwrap();
 
     let cli = Cli::parse_from(&[
-        "bark", "--config", &cfg, "clean", "--keep", "1", "--backup-dir", bd, root,
+        "bark",
+        "--config",
+        &cfg,
+        "clean",
+        "--keep",
+        "1",
+        "--backup-dir",
+        bd,
+        root,
     ]);
     bark::run_with_cli(cli).unwrap();
 }

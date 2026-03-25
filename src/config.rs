@@ -321,4 +321,40 @@ team = "backend"
         assert!(c.patterns.contains(&"*.min.*".to_string()));
         assert!(c.patterns.contains(&"target/**".to_string()));
     }
+
+    // Mutex to serialize tests that mutate the HOME env var
+    fn home_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn find_and_load_and_find_config_path_read_user_home_config() {
+        let _guard = home_env_lock();
+
+        let home = tempfile::TempDir::new().unwrap();
+        let cfg_dir = home.path().join(".config").join("bark");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        let cfg_file = cfg_dir.join("config.toml");
+        std::fs::write(&cfg_file, "[template]\ndefault = \"HomeTest: {{file}}\"\n").unwrap();
+
+        let project = home.path().join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home.path());
+
+        let load_result = Config::find_and_load(&project);
+        let path_result = Config::find_config_path(&project);
+
+        match old_home {
+            Some(h) => std::env::set_var("HOME", h),
+            None => std::env::remove_var("HOME"),
+        }
+
+        let cfg = load_result.unwrap().unwrap();
+        assert!(cfg.template.default.contains("HomeTest:"));
+        assert_eq!(path_result, Some(cfg_file));
+    }
 }
