@@ -52,13 +52,14 @@ impl TreeGenerator {
 
     pub fn generate(&self, output_path: &Path) -> anyhow::Result<String> {
         let mut out = String::from(".\n");
-        self.walk(&self.root, "", &mut out)?;
+        let (dirs, files) = self.walk(&self.root, "", &mut out)?;
+        out.push_str(&format!("\n{} directories, {} files\n", dirs, files));
         std::fs::write(output_path, &out)
             .map_err(|e| anyhow::anyhow!("writing bark.txt: {}", e))?;
         Ok(out)
     }
 
-    fn walk(&self, dir: &Path, prefix: &str, out: &mut String) -> anyhow::Result<()> {
+    fn walk(&self, dir: &Path, prefix: &str, out: &mut String) -> anyhow::Result<(usize, usize)> {
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
@@ -66,6 +67,9 @@ impl TreeGenerator {
             .collect();
 
         entries.sort();
+
+        let mut total_dirs = 0usize;
+        let mut total_files = 0usize;
 
         for (i, entry) in entries.iter().enumerate() {
             let is_last = i == entries.len() - 1;
@@ -76,14 +80,18 @@ impl TreeGenerator {
                 .unwrap_or_default();
 
             if entry.is_dir() {
+                total_dirs += 1;
                 out.push_str(&format!("{}{}{}/\n", prefix, connector, name));
                 let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-                self.walk(entry, &child_prefix, out)?;
+                let (sub_dirs, sub_files) = self.walk(entry, &child_prefix, out)?;
+                total_dirs += sub_dirs;
+                total_files += sub_files;
             } else {
+                total_files += 1;
                 out.push_str(&format!("{}{}{}\n", prefix, connector, name));
             }
         }
-        Ok(())
+        Ok((total_dirs, total_files))
     }
 
     fn should_include(&self, path: &Path) -> bool {

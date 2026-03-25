@@ -52,7 +52,7 @@ fn cli_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.0.2"));
+        .stdout(predicate::str::contains("0.0.3"));
 }
 
 // ── bark init ────────────────────────────────────────────────────────────────

@@ -100,9 +100,12 @@ fn default_exclude_patterns() -> Vec<String> {
         "*.bundle.*".into(),
         "dist/**".into(),
         "build/**".into(),
+        "out/**".into(),
+        ".next/**".into(),
         "node_modules/**".into(),
         "vendor/**".into(),
         "target/**".into(),
+        "coverage/**".into(),
     ]
 }
 

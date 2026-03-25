@@ -28,11 +28,15 @@ patterns = [
     "*.bundle.*",
     "dist/**",
     "build/**",
+    "out/**",           # Next.js output
+    ".next/**",         # Next.js cache / build
     "node_modules/**",
     "vendor/**",
     "target/**",
+    "coverage/**",      # test coverage output
 ]
 # Patterns for files that appear in bark.txt but do NOT receive headers
+# Example: header_skip = ["*.md", "*.mdx", "docs/**"]
 header_skip = []
 
 [extensions]

@@ -22,16 +22,22 @@ date_format = "%Y-%m-%d"
 # project = "my-project"
 
 [exclude]
-# Glob patterns for files/directories to skip
+# Glob patterns for files/directories to skip entirely (excluded from both bark.txt and header insertion)
 patterns = [
     "*.min.*",
     "*.bundle.*",
     "dist/**",
     "build/**",
+    "out/**",
+    ".next/**",
     "node_modules/**",
     "vendor/**",
     "target/**",
+    "coverage/**",
 ]
+# Patterns for files that appear in bark.txt but do NOT receive headers
+# Example: header_skip = ["*.md", "*.mdx", "docs/**"]
+header_skip = []
 
 [extensions]
 # Extra extensions to process beyond the built-in set

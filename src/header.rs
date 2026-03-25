@@ -30,8 +30,12 @@ impl CommentStyle {
             | "purs" | "elm"           // functional
             => Some(Self::Slash),
 
+            // Shell scripts
+            "sh" | "bash" | "zsh" | "fish" | "ksh"
+            // PowerShell
+            | "ps1" | "psm1" | "psd1"
             // Config / data / scripting languages (non-shell)
-            "py" | "rb" | "cr" | "nim"
+            | "py" | "rb" | "cr" | "nim"
             | "ex" | "exs"             // Elixir
             | "jl"                     // Julia
             | "tf" | "tfvars" | "hcl"  // Terraform / HCL
@@ -39,12 +43,14 @@ impl CommentStyle {
             | "graphql" | "gql"
             | "txt"
             | "toml" | "yaml" | "yml"
+            | "mk"                     // Makefile includes
             => Some(Self::Hash),
 
             "css" | "scss" | "sass" | "less" | "styl" => Some(Self::Css),
 
             "html" | "htm" | "xml" | "svg"
             | "vue" | "svelte" | "astro"
+            | "mdx"                    // MDX (React docs)
             => Some(Self::Html),
 
             _ => None,
@@ -296,7 +302,7 @@ mod tests {
 
     #[test]
     fn html_extensions() {
-        for ext in &["html", "htm", "xml", "svg", "vue", "svelte", "astro"] {
+        for ext in &["html", "htm", "xml", "svg", "vue", "svelte", "astro", "mdx"] {
             assert_eq!(
                 CommentStyle::from_ext(ext),
                 Some(CommentStyle::Html),
@@ -307,11 +313,23 @@ mod tests {
     }
 
     #[test]
+    fn shell_and_powershell_extensions() {
+        for ext in &[
+            "sh", "bash", "zsh", "fish", "ksh", "ps1", "psm1", "psd1", "mk",
+        ] {
+            assert_eq!(
+                CommentStyle::from_ext(ext),
+                Some(CommentStyle::Hash),
+                "expected Hash for .{}",
+                ext
+            );
+        }
+    }
+
+    #[test]
     fn unknown_extension_returns_none() {
         assert_eq!(CommentStyle::from_ext("xyz"), None);
         assert_eq!(CommentStyle::from_ext(""), None);
-        assert_eq!(CommentStyle::from_ext("sh"), None); // removed intentionally
-        assert_eq!(CommentStyle::from_ext("bash"), None);
     }
 
     // ── CommentStyle::wrap ──────────────────────────────────────────────────
